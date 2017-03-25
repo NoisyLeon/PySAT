@@ -1,2 +1,2 @@
-# PySA
-Python code for seismic anisotropy analysis
+# PySAT
+A Python Seismic Anisotropy Toolkit
