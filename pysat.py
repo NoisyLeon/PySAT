@@ -13,10 +13,14 @@ The Python Seismic Anisotropy Toolkit
         Bell Labs Technical Journal, 22(1), pp.1-72.
     Babuska, V. and Cara, M., 1991. Seismic anisotropy in the Earth (Vol. 10).
         Springer Science & Business Media.
-    Riley, K.F., Hobson, M.P. and Bence, S.J., 2006. Mathematical methods for physics and engineering: a comprehensive guide.
-        Cambridge university press.
     Carcione, J.M., 2014. Wave fields in real media:
         Wave propagation in anisotropic, anelastic, porous and electromagnetic media (Vol. 38). Elsevier.
+    Riley, K.F., Hobson, M.P. and Bence, S.J., 2006. Mathematical methods for physics and engineering: a comprehensive guide.
+        Cambridge university press.
+    Tsvankin, I., 2012. Seismic signatures and analysis of reflection data in anisotropic media.
+        Society of Exploration Geophysicists.
+    Wolfe, J.P., 2005. Imaging phonons: acoustic wave propagation in solids.
+        Cambridge University Press.
 ::: Note :::
 For rotation matrix ambiguities:
     https://en.wikipedia.org/wiki/Rotation_matrix#Ambiguities
@@ -28,6 +32,7 @@ Direction of rotation:
 """
 import numpy as np
 import copy
+import pyasdf
 try:
     from opt_einsum import contract
     use_opt_einsum=True
@@ -1208,6 +1213,7 @@ class Christoffel(object):
     Output Parameters:
     kcmat       - Kelvin-Christoffel Matrix (3*3, unit: Gpa)
     grad_mat    - gradient of Kelvin-Christoffel Matrix (3*3*3, unit: Gpa)
+    hessian_mat - Hessian matrix
     ----------------------
     --- Phase velocity ---
     ----------------------
@@ -1232,6 +1238,7 @@ class Christoffel(object):
     cos_pf_angle    - cosine of power flow angle
     hessian_eig     - Hessian matrix of eigenvalues (3*3*3)
     ===================================================================================
+    Modified from the Python code, christoffel by Jan Jaeken
     """
 
     def __init__(self, etensor, verbose=True, isotype='voigt'):
@@ -1260,7 +1267,9 @@ class Christoffel(object):
     def copy(self): return copy.deepcopy(self)
             
     def clear_direction(self):
-        """Clear all direction-dependent data"""
+        """
+        Clear all direction-dependent data
+        """
         self.pv             = None
         self.theta          = None
         self.phi            = None
@@ -1283,12 +1292,12 @@ class Christoffel(object):
     
     def set_direction_cartesian(self, pv, is_normalized=False):
         """
-        Define a wave propagation vector in Cartesian coordinates.
+        Define a wave propagation vector in a Cartesian coordinate.
         It is always explicitly normalized to lie on the unit sphere.
         ============================================================================
         Input Parameters:
         pv              - wave propagation direction vector
-                            list of 3 numbers of numpy array (e.g. [1, 0, 0])
+                            list of 3 numbers or numpy array (e.g. [1, 0, 0])
         is_normalized   - whether the pv is unit vector or not
         ============================================================================
         """
@@ -1300,7 +1309,7 @@ class Christoffel(object):
             x = x/n
             y = y/n
             z = z/n
-        if z >= 1.0 or z <= -1.0:
+        if z == 1.0 or z == -1.0:
             if z > 0.0: self.theta = 0.0
             else: self.theta = np.pi
             self.phi = 0.0
@@ -1318,7 +1327,7 @@ class Christoffel(object):
     
     def set_direction_spherical(self, theta, phi):
         """
-        Define a wave vector in spherical coordinates (degree).
+        Define a wave vector in a spherical coordinate
         x = cos(phi) * sin(theta)
         y = sin(phi) * sin(theta)
         z = cos(theta)
@@ -1329,18 +1338,18 @@ class Christoffel(object):
         ==========================================================
         """
         self.clear_direction()
-        self.theta      = theta
-        self.phi        = phi
-        theta   = theta/180.*np.pi
-        phi     = phi/180.*np.pi
-        sin_theta = np.sin(theta)
-        cos_theta = np.cos(theta)
-        sin_phi = np.sin(phi)
-        cos_phi = np.cos(phi)
-        x = cos_phi * sin_theta
-        y = sin_phi * sin_theta
-        z = cos_theta
-        self.pv = np.array([x, y, z])
+        self.theta  = theta
+        self.phi    = phi
+        theta       = theta/180.*np.pi
+        phi         = phi/180.*np.pi
+        sin_theta   = np.sin(theta)
+        cos_theta   = np.cos(theta)
+        sin_phi     = np.sin(phi)
+        cos_phi     = np.cos(phi)
+        x           = cos_phi * sin_theta
+        y           = sin_phi * sin_theta
+        z           = cos_theta
+        self.pv     = np.array([x, y, z])
         self.get_kc_mat()
         return
     
@@ -1350,11 +1359,11 @@ class Christoffel(object):
         The distribution is uniform across the unit sphere.
         """
         self.clear_direction()
-        cos_theta = np.random.ranf()
-        phi = 2.0 * np.pi * np.random.ranf()
-        sin_theta = np.sqrt(1 - cos_theta**2)
-        cos_phi = np.cos(phi)
-        sin_phi = np.sin(phi)
+        cos_theta   = np.random.ranf()
+        phi         = 2.0 * np.pi * np.random.ranf()
+        sin_theta   = np.sqrt(1 - cos_theta**2)
+        cos_phi     = np.cos(phi)
+        sin_phi     = np.sin(phi)
         self.pv     = np.array([cos_phi*sin_theta, sin_phi*sin_theta, cos_theta])
         self.phi    = phi*180./np.pi
         self.theta  = np.arccos(cos_theta)*180./np.pi
@@ -1363,22 +1372,27 @@ class Christoffel(object):
     
     def get_kc_mat(self):
         """
-        Get the Kelvin-Christoffel Matrix (e.g. Babuska & Cara p16)
-        ==========================================================
+        Get the Kelvin-Christoffel Matrix (e.g. eq. 1.9 in Tsvankin, 2012)
+        ===================================================================
         Output:
         self.kcmat  - Kelvin-Christoffel Matrix (3*3, unit: Gpa)
-        ==========================================================
+        ===================================================================
         """
-        kcmat1  = np.einsum('j,k, ijkl->il', self.pv, self.pv, self.etensor.Cijkl)
-        kcmat2  = np.dot(self.pv, np.dot(self.pv, self.etensor.Cijkl))
-        if not np.allclose(kcmat1, kcmat2): raise ValueError('Error Christoffel Matrix')
+        if use_opt_einsum:
+            kcmat1  = contract('j,l, ijkl->ik', self.pv, self.pv, self.etensor.Cijkl)
+        else:
+            kcmat1  = np.einsum('j,l, ijkl->ik', self.pv, self.pv, self.etensor.Cijkl)
+        ###
+        # kcmat2  = np.dot(self.pv, np.dot(self.pv, self.etensor.Cijkl))
+        # if not np.allclose(kcmat1, kcmat2): raise ValueError('Error Christoffel Matrix')
+        ###
         self.kcmat=kcmat1
         return
     
     def get_phvel(self):
         """
-        Determine eigenvalues, eigenvectors of the Kelvin-Christoffel equation,
-        sort from low to high, then store eigens and phase velocities.
+        Determine eigenvalues, eigenvectors of the Kelvin-Christoffel matrix.
+        Results are sorted from low to high, then store eigens and phase velocities.
         ========================================================================================
         Output:
         self.eig_val    - eigenvalues  (3*1, unit: Gpa)
@@ -1406,22 +1420,26 @@ class Christoffel(object):
         self.grad_mat  - gradient of the Kelvin-Christoffel Matrix (3*3*3, unit: Gpa)
         ========================================================================================
         """
-        gradmat1 = np.einsum('m, ikmj->kij', self.pv, self.etensor.Cijkl) + \
+        if use_opt_einsum:
+            gradmat1 = contract('m, ikmj->kij', self.pv, self.etensor.Cijkl) + \
+                    contract('m, imkj->kij', self.pv, self.etensor.Cijkl)
+        else:
+            gradmat1 = np.einsum('m, ikmj->kij', self.pv, self.etensor.Cijkl) + \
                     np.einsum('m, imkj->kij', self.pv, self.etensor.Cijkl)
         ###
-        pv  = self.pv
-        C   = self.etensor.Cijkl
-        gradmat2 = np.dot(pv, C + np.transpose(C, (0, 2, 1, 3)))
-        gradmat2 = np.transpose(gradmat2, (1, 0, 2))
+        # # # pv  = self.pv
+        # # # C   = self.etensor.Cijkl
+        # # # gradmat2 = np.dot(pv, C + np.transpose(C, (0, 2, 1, 3)))
+        # # # gradmat2 = np.transpose(gradmat2, (1, 0, 2))
+        # # # if not np.allclose(gradmat1, gradmat2): raise ValueError('Error gradient Christoffel Matrix')
         ###
-        if not np.allclose(gradmat1, gradmat2): raise ValueError('Error gradient Christoffel Matrix')
         self.grad_mat = gradmat1
         return
     
-    def get_group_velocity(self):
+    def get_grvel(self):
         """
         Calculate group velocities as the gradient of the phase velocities.
-        Powerflow angles are also calculated and stored.
+        Power flow angles are also calculated and stored.
         ========================================================================================
         Output:
         self.grvel          - group velocities (3*1, unit: km/s)
@@ -1484,7 +1502,7 @@ class Christoffel(object):
     
     def get_hessian_eig(self):
         """
-        Calculate the hessian of the eigenvalues.
+        Calculate the eigenvalues of Hessian matrix
         Hessian[n][i][j] = d^2 lambda_n / dx_i dx_j
         """
         dynmat  = self.kcmat
@@ -1495,22 +1513,42 @@ class Christoffel(object):
         hessian = np.zeros((3, 3, 3))
         idmat   = np.identity(3)
         for n in xrange(3):
-            hessian[n] += np.dot(np.dot(hess_mat, eig_vec[n]), eig_vec[n])
-            pseudoinv = np.linalg.pinv(eig_val[n]*idmat - dynmat, rcond=1e-10)
-            deriv_vec = np.dot(gradmat, eig_vec[n])
-            hessian[n] += 2.0 * np.dot(np.dot(deriv_vec, pseudoinv), deriv_vec.T)
+            hessian[n]  += np.dot(np.dot(hess_mat, eig_vec[n]), eig_vec[n])
+            pseudoinv   = np.linalg.pinv(eig_val[n]*idmat - dynmat, rcond=1e-10)
+            deriv_vec   = np.dot(gradmat, eig_vec[n])
+            hessian[n]  += 2.0 * np.dot(np.dot(deriv_vec, pseudoinv), deriv_vec.T)
             #Take deriv of eigenvec into account: 2 * (d/dx s_i) * pinv_ij * (d_dy s_j)
-        self.hessian_eig = hessian
+        self.hessian_eig= hessian
         return
     
     def get_enhancement(self, approx=False, num_steps=8, delta=1e-5):
+        """
+        Calculate the enhancement factor (p51, eq. 42 in Wolfe, 2005)
+        ======================================================================================================
+        Input Parameters:
+        approx              - determine the enhancement factor approximately(numerically) or not
+        self.enhancement    - enhancement factor
+        num_steps           - number of sides for the surface polygon
+        delta               - radius of the polygon
+        ======================================================================================================
+        When approx is True, the function determines the enhancement factors according to a numerical scheme.
+        The surface areas of a set of triangles in phase and group space are
+        calculated and divided. This is significantly slower and less accurate
+        than the analytical approach, but will provide a physically relevant
+        value when the enhancement factor is ill defined.
+
+        The surface area is a polygon of n sides where n is num_steps.
+        The radius of this polygon is determined by delta, which determines the
+        change in theta and phi coordinates relative to the central position.
+        
+        Need benchmark!
+        """
         if self.phvel is None: self.get_phvel()
         if self.grad_mat is None: self.get_grad_mat()
-        if self.grvel is None: self.get_group_velocity()
+        if self.grvel is None: self.get_grvel()
         if self.hessian_eig is None: self.get_hessian_eig()
-        tempChr=self.copy()
         if not approx:
-            hessian     = self.hessian_eig
+            hessian     = self.hessian_eig *1000./self.etensor.rho
             phase_vel   = self.phvel
             group_vec   = self.group_vec
             group_abs   = self.grvel
@@ -1522,8 +1560,9 @@ class Christoffel(object):
                 grad_group[n] /= 2.0*phase_vel[n] #grad lambda = 2 * v_p * v_g
     
                 enhance[n] = 1.0 / np.linalg.norm( (np.dot(cofactor(grad_group[n]), self.pv)), 2)
-            self.enhancement = enhance
+            self.enhancement = enhance 
         else:
+            tempChr     = self.copy()
             phase_grid  = np.empty((num_steps+1, 3))
             group_grid  = np.empty((num_steps+1, 3, 3))
     
@@ -1535,13 +1574,13 @@ class Christoffel(object):
                 angle = i*2.0*np.pi/num_steps
                 tempChr.set_direction_spherical( (center_theta + np.sin(angle)*delta)/np.pi*180., (center_phi + np.cos(angle)*delta)/np.pi*180.)
                 phase_grid[i] = tempChr.pv
-                if tempChr.group_pv is None: tempChr.get_group_velocity()
+                if tempChr.group_pv is None: tempChr.get_grvel()
                 group_grid[i] = tempChr.group_pv
     
             phase_grid[num_steps] = phase_grid[0]
             group_grid[num_steps] = group_grid[0]
             tempChr.set_direction_cartesian(phase_center)
-            if tempChr.grvel is None: tempChr.get_group_velocity()
+            if tempChr.grvel is None: tempChr.get_grvel()
             group_center = tempChr.group_pv
     
             phase_area  = 0.0
@@ -1551,10 +1590,9 @@ class Christoffel(object):
                 phase_area += np.linalg.norm ( (np.cross(phase_grid[i] - phase_center, phase_grid[i+1] - phase_center)), 2)
                 for n in xrange(3):
                     group_area[n] += np.linalg.norm ( np.cross(group_grid[i][n] - group_center[n], group_grid[i+1][n] - group_center[n]), 2)
-            self.enhancement = phase_area/group_area
+            self.enhancement = phase_area/group_area 
         return
     
-
     def find_nopowerflow(self, step_size=0.9, eig_id=2, max_iter=900):
         """
         Attempts to find the closest direction of extremal phase velocity,
@@ -1569,9 +1607,8 @@ class Christoffel(object):
         """
         if self.pv is None:
             self.set_direction_random()
-
         phase_dir = self.pv
-        if self.group_pv is None: self.get_group_velocity()
+        if self.group_pv is None: self.get_grvel()
         group_dir = self.group_pv
 
         step_dir = group_dir[eig_id] - phase_dir
@@ -1583,12 +1620,65 @@ class Christoffel(object):
             self.find_nopowerflow(step_size, eig_id, max_iter)
         return
     
-    
-
-
+    def sphere(self, dtheta=1., dphi=1., group=False, outfname=None):
+        Ntheta  = int(180./dtheta) + 1
+        Nphi    = int(360./dphi)
+        thetas  = np.linspace(0., 180., num=Ntheta)
+        phis    = np.linspace(0., 360., num=Nphi, endpoint=False)
+        thetaArr, phiArr = np.meshgrid(thetas, phis)
         
+        phvelArr = np.zeros([3, Nphi, Ntheta])
+        eigvecArr= np.zeros([3, 3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        # phvelArr = np.zeros([3, Nphi, Ntheta])
+        
+        for itheta in xrange(Ntheta):
+            print itheta
+            for iphi in xrange(Nphi):
+                theta       = thetaArr[iphi, itheta]
+                phi         = phiArr[iphi, itheta]
+                temp_kceq   = self.copy()
+                temp_kceq.set_direction_spherical(theta=theta, phi=phi)
+                temp_kceq.get_phvel()
+                phvelArr[:, iphi, itheta] = temp_kceq.phvel
+                eigvecArr[:, :, iphi, itheta] = temp_kceq.eig_vec
+                if not group: continue
+                temp_kceq.get_grvel()
+                
+        self.phvelArr   = phvelArr
+        self.eigvecArr  = eigvecArr
+        if outfname is not None:
+            dset    = pyasdf.ASDFDataSet(outfname)
+            dset.add_auxiliary_data(data=thetaArr,  data_type='PySAT', path='theta', parameters={})
+            dset.add_auxiliary_data(data=phiArr,  data_type='PySAT', path='phi', parameters={})
+            dset.add_auxiliary_data(data=phvelArr,  data_type='PySAT', path='phvel', parameters={})
+            dset.add_auxiliary_data(data=phvelArr,  data_type='PySAT', path='eigvec', parameters={})
+            
+        # import matplotlib.pyplot as plt
+        # # from mpl_toolkits.mplot3d import Axes3D
+        # r=1.
+        # x = r*sin(phiArr/180.*np.pi)*cos(thetaArr/180.*np.pi)
+        # y = r*sin(phiArr/180.*np.pi)*sin(thetaArr/180.*np.pi)
+        # z = r*cos(phiArr/180.*np.pi)
+        # fig = plt.figure()
+        # ax = fig.add_subplot(111, projection='3d')
+        # 
+        # ax.plot_surface(
+        #     x, y, z,  rstride=1, cstride=1, color='c', alpha=0.6, linewidth=0)
+        #
     
-    
-    
+    def read_asdf(self, infname):
+        dset    = pyasdf.ASDFDataSet(infname)
+        self.thetaArr   = dset.auxiliary_data['PySAT']['theta'].data.value
+        self.phiArr     = dset.auxiliary_data['PySAT']['phi'].data.value
+        self.phvelArr   = dset.auxiliary_data['PySAT']['phvel'].data.value
+        self.eigvecArr  = dset.auxiliary_data['PySAT']['eigvec'].data.value
+        return
 
 
