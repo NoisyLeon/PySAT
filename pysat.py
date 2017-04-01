@@ -11,6 +11,8 @@ The Python Seismic Anisotropy Toolkit
 :References:
     Bond, W.L., 1943. The mathematics of the physical properties of crystals.
         Bell Labs Technical Journal, 22(1), pp.1-72.
+    Babuska, V. and Cara, M., 1991. Seismic anisotropy in the Earth (Vol. 10).
+        Springer Science & Business Media.
     Riley, K.F., Hobson, M.P. and Bence, S.J., 2006. Mathematical methods for physics and engineering: a comprehensive guide.
         Cambridge university press.
     Carcione, J.M., 2014. Wave fields in real media:
@@ -121,7 +123,6 @@ def euler2mat(ai, aj, ak, axes='sxyz'):
         M[k, j] = cj*si
         M[k, k] = cj*ci
     return M
-
 
 def mat2euler(mat, axes='sxyz'):
     """Return Euler angles from rotation matrix for specified axis sequence.
@@ -271,7 +272,7 @@ def mat2rot(mat, unit_thresh=1e-5):
 
 def bondmat(axis, angle):
     """
-    Compute Bond Matrix for rotation of Voigt matrix (eq. 1.54 in Carcione, 2014)
+    Compute Bond Matrix for rotation of Voigt matrix (eq. 8.9 in Bond, 1943; eq. 1.54 in Carcione, 2014)
     :::Important Note:::
     The rotation matrix used for Bond matrix was originally defined for rotation of the coordinate system
     ,which is in the opposite direction for rotation of a tensor in a fixed coordinate.
@@ -298,16 +299,13 @@ def bondmat(axis, angle):
 
 def bondmat2(g):
     """
-    Compute Bond Matrix for rotation of Voigt matrix (eq. 1.54 in Carcione, 2014)
+    Compute Bond Matrix for rotation of Voigt matrix (eq. 8.9 in Bond, 1943; eq. 1.54 in Carcione, 2014)
     ================================================================================
     Input Parameters:
     g   - transformation matrix
     -----
     output  -   mat : array shape (3,3), Bond matrix for rotation of Voigt matrix
     ================================================================================
-    Reference:
-    Carcione, J.M., 2014. Wave fields in real media:
-        Wave propagation in anisotropic, anelastic, porous and electromagnetic media (Vol. 38). Elsevier.
     """
     M       = np.array([[g[0,0]**2, g[0,1]**2, g[0,2]**2, 2.*g[0,1]*g[0,2], 2.*g[0,2]*g[0,0], 2.*g[0,0]*g[0,1]],
                         [g[1,0]**2, g[1,1]**2, g[1,2]**2, 2.*g[1,1]*g[1,2], 2.*g[1,2]*g[1,0], 2.*g[1,0]*g[1,1]],
@@ -318,26 +316,92 @@ def bondmat2(g):
         ])
     return M
 
+def get_vel(bulk, shear, rho):
+    """
+    Compute primary and secondary seismic wave velocities for an isotropic material
+    ================================================================================
+    Input Parameters:
+    bulk    - bulk modulus (GPa)
+    shear   - shear modulus (Gpa)
+    rho     - density (kg/m^3)
+    -----
+    output  - primary, secondary velocities (km/s)
+    ================================================================================
+    """
+    primary     = np.sqrt(1000.0*(bulk + 4.0*shear/3)/rho)
+    secondary   = np.sqrt(1000.0*shear/rho)
+    return primary, secondary
+
+def vec2rotmat(vector1, vector2):
+    """
+    Return a rotation matrix that rotates vector2 towards vector1.
+    """
+    vector1 = np.array(vector1)/norm(vector1)
+    vector2 = np.array(vector2)/norm(vector2)
+    rotvec  = np.cross(vector2, vector1)
+
+    sin_angle = norm(rotvec)
+    cos_angle = np.sqrt(1.0 - sin_angle*sin_angle)
+    if sin_angle > 1e-10:
+        dir_vec = rotvec/sin_angle
+    else:
+        return idmat
+
+    ddt = np.outer(dir_vec, dir_vec)
+    skew = np.array([[        0.0, -dir_vec[2],  dir_vec[1]],
+                     [ dir_vec[2],         0.0, -dir_vec[0]],
+                     [-dir_vec[1],  dir_vec[0],        0.0]])
+
+    mtx = ddt + cos_angle * (idmat - ddt) - sin_angle * skew
+    return mtx
+
+def cofactor(m):
+    """
+    Return the cofactor matrix of a 3x3 matrix.
+    """
+    cof = np.empty((3, 3))
+
+    cof[0][0] = m[1][1]*m[2][2] - m[1][2]*m[2][1]
+    cof[0][1] = m[1][2]*m[2][0] - m[1][0]*m[2][2]
+    cof[0][2] = m[1][0]*m[2][1] - m[1][1]*m[2][0]
+
+    cof[1][0] = m[0][2]*m[2][1] - m[0][1]*m[2][2]
+    cof[1][1] = m[0][0]*m[2][2] - m[0][2]*m[2][0]
+    cof[1][2] = m[0][1]*m[2][0] - m[0][0]*m[2][1]
+
+    cof[2][0] = m[0][1]*m[1][2] - m[0][2]*m[1][1]
+    cof[2][1] = m[0][2]*m[1][0] - m[0][0]*m[1][2]
+    cof[2][2] = m[0][0]*m[1][1] - m[0][1]*m[1][0]
+    
+    cof2 = np.linalg.inv(m).T * np.linalg.det(m)
+    if not np.allclose( cof, cof2):
+        raise ValueError('Inconsistent cofactor matrix!')
+    return cof
+
 class elasticTensor(object):
     """
     An object to manipulate elastic tensor in 3D coordinate
     ===========================================================================
     Cijkl   - 4th order elastic tensor (3*3*3*3, GPa)
     Cvoigt  - Voigt matrix (6*6, GPa)
+    eCvoigt - error in Voigt matrix
     rho     - density (kg/m^3)
     compl   - element is compliance or not
+    info    - auxliary information
     ===========================================================================
     """
-    def __init__(self, compl=False):
+    def __init__(self, Cvoigt = np.zeros([6,6]), eCvoigt = None, compl = False):
         self.Cijkl  = np.zeros([3,3,3,3])
-        self.Cvoigt = np.zeros([6,6])
+        self.Cvoigt = Cvoigt
+        self.eCvoigt= eCvoigt
         self.rho    = np.nan
         self.compl  = compl
         self.info   = ''
+        if not np.allclose(Cvoigt, np.zeros([6,6])): self.Voigt2Cijkl()
         return
     
     def __str__(self):
-        self.Cvoigt[np.abs(self.Cvoigt)<1e-6]=0.
+        self.small2zero()
         outstr=self.info
         outstr=outstr+'\n------\nVoigt matrix (Gpa):'
         outstr=outstr+'\n'+self.Cvoigt.__str__()
@@ -345,6 +409,11 @@ class elasticTensor(object):
         return outstr
     
     def __repr__(self): return self.__str__()
+    
+    def small2zero(self, resetCijkl=True):
+        self.Cvoigt[np.abs(self.Cvoigt)<self.Cvoigt.max()*1e-6]=0.
+        if resetCijkl: self.Voigt2Cijkl()
+        return
     
     def copy(self): return copy.deepcopy(self)
     
@@ -393,146 +462,83 @@ class elasticTensor(object):
                         self.Cijkl[i,j,k,l] = Cvoigt[m2t[i,j],m2t[k,l]]
         return
     
-    ##########################################################################
-    # Methods for transformation of elastic tensor in fixed coordinate system
-    ##########################################################################
-    
-    def rotT(self, axis, angle, resetCvoigt=True):
+    def is_isotropic(self, tol=1e-5, verbose=True):
         """
-        Rotate a 4th order elastic tensor with transformation matrix (rotation matrix),
-        the coordinate system is fixed. 
-        Note that the rotation is the inverse of rotation of a coordinate system.
-        ==================================================================================
-        Input Parameters:
-        axis            - 3 element sequence, vector specifying axis for rotation.
-        angle           - scalar, angle of rotation in degree.
-        ==================================================================================
-        ::: Note 1 :::
-        Define L[i,j] = e'[i] * e[j] as transformation matrix of the coordinate,
-        for axis = [0, 0, 1], rotation angle theta, we get:
-            L = [cos(theta)  sin(theta)   0
-                 -sin(theta) cos(theta)   0
-                    0           0         1 ]
-        And C'[i,j,k,l] = L[i,a]L[j,b]L[k,c]L[l,d]C[a,b,c,d]
-        Note that we actually need to rotate the tensor, thus the angle has opposite sign,
-        which is the case for the output from rot2mat.
-        For more details, see Riley's book(p931, third edition).
-        ::: Note 2 :::
-        The definition of L[i,j] may be different in other books.
-        Another definition is L[i,j] = e[i] * e'[j], in this case, we have:
-        C'[i,j,k,l] = L[a,i]L[b,j]L[c,k]L[d,l]C[a,b,c,d]
-        The rotation matrix from rot2mat should be changed if using this convention.
-        ==================================================================================
+        Check whether the elastic tensor is isotropic or not.
         """
-        g  = rot2mat(axis=axis, angle=angle)
-        if use_opt_einsum:
-            self.Cijkl[:]=contract('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
-        else:
-            self.Cijkl[:]=np.einsum('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
-        if resetCvoigt: self.Cijkl2Voigt()
-        return
-    
-    def _test_rotT(self, v=np.array([1.,0.,0.]), axis=[0,0,1], angle=45.):
-        R=pysat.rot2mat(axis=axis, angle=angle)
-        vprime=np.einsum('ia,a->i', R, v)
-        print 'Testing rotation of a vector with fixed coordinate'
-        print 'v =',v,' vprime = ',vprime
-        return
-    
-    def rotB(self, axis, angle, resetCijkl=True):
-        """
-        Rotate Voigt matrix using Bond matrix (eq. 1.58 in Carcione, 2014)
-        Note that the rotation is the inverse of rotation of a coordinate system,
-        thus the rotation matrix used to construct Bond matrix is the inverse of the
-        rotation matrix in Bond's book (p12-13)
-        ============================================================================
-        Input Parameters:
-        axis            - 3 element sequence, vector specifying axis for rotation.
-        angle           - scalar, angle of rotation in degree.
-        resetCijkl      - reset 4th order tensor or not
-        ============================================================================
-        """
-        M           = bondmat(axis=axis, angle=angle)
-        self.Cvoigt = np.dot(M, self.Cvoigt)
-        self.Cvoigt = np.dot(self.Cvoigt, M.T)
-        if resetCijkl: self.Voigt2Cijkl()
-        return
-    
-    def rotTB(self, axis, angle, verbose=True):
-        """
-        Rotate elastic tensor with both rotT and rotB, output error if incompatible
-        ============================================================================
-        Input Parameters:
-        axis            - 3 element sequence, vector specifying axis for rotation.
-        angle           - scalar, angle of rotation in degree.
-        ============================================================================
-        """
-        et_temp = self.copy()
-        self.rotT(axis=axis, angle=angle)
-        et_temp.rotB(axis=axis, angle=angle)
-        if not np.allclose(self.Cvoigt, et_temp.Cvoigt):
-            raise ValueError('Inconsistent Rotation!')
-        else:
-            if verbose: print 'Consistent rotation!'
-        return
-    
-    def rot_dip_strike(self, dip, strike, method='default'):
-        """
-        Rotate elastic tensor dip and strike angle, original tensor should be VTI
-        Definition of geographical coordinate system:
-        x   - North; y   - East; z  - depth
-        ============================================================================
-        Input Parameters:
-        dip             - dip angle in degree (0<=dip<=90.)
-        strike          - strike angle in degree (0<=strike<360.)
-                            clockwise from North (x-axis)
-        method          - 'default' : rotate with dip and strike in two steps
-                          'euler'   : rotate with Euler angles
-        ============================================================================
-        """
-        if dip >90. or dip < 0.: raise ValueError('Dip should be within [0., 90.]!')
-        if method=='default':
-            self.rotTB(axis=[1,0,0], angle=dip)
-            self.rotTB(axis=[0,0,1], angle=strike)
-        elif method == 'euler':
-            g  = euler2mat(ai=dip, aj=0., ak=strike, axes='sxyz')
-            if use_opt_einsum:
-                self.Cijkl[:]=contract('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
-            else:
-                self.Cijkl[:]=np.einsum('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
-            self.Cijkl2Voigt()
-        return
-    
-    def rot_dip_strike2(self, dip, strike, verbose=True):
-        self.rot_dip_strike(dip=dip, strike=strike)
-        et_temp = self.copy()
-        et_temp.rot_dip_strike(dip=dip, strike=strike, method='euler')
-        if not np.allclose(self.Cvoigt, et_temp.Cvoigt):
-            raise ValueError('Inconsistent dip/strike Rotation!')
-        else:
-            if verbose: print 'Consistent dip/strike Rotation!'
-        return
+        C = self.Cvoigt
+        isISO = (abs(C[0,0]-C[1,1]) < tol) and (abs(C[0,0]-C[2,2]) < tol) and \
+            (abs(C[0,1]-C[0,2]) < tol) and (abs(C[0,1]-C[1,2]) < tol) and \
+            (abs(C[3,3]-C[4,4]) < tol) and (abs(C[3,3]-C[5,5]) < tol) and \
+            (abs(C[0,3]) < tol) and (abs(C[0,4]) < tol) and (abs(C[0,5]) < tol) and \
+            (abs(C[1,3]) < tol) and (abs(C[1,4]) < tol) and (abs(C[1,5]) < tol) and \
+            (abs(C[2,3]) < tol) and (abs(C[2,4]) < tol) and (abs(C[2,5]) < tol) and \
+            (abs(C[3,4]) < tol) and (abs(C[3,5]) < tol) and (abs(C[4,5]) < tol) and \
+            (((C[0,0]-C[0,1])/2.0)-C[3,3] < tol)
+        if verbose:
+            if isISO: print 'Elastic tensor is isotropic !'
+            else: print 'Elastic tensor is anisotropic !'
+        return isISO
     
     def check_stability(self, verbose=True):
-        """Check that the elastic constants matrix is positive definite 
-        That is,  check that the structure is stable to small strains. This
+        """
+        Check that the elastic constants matrix is positive definite 
+        That is, check that the structure is stable to small strains. This
         is done by finding the eigenvalues of the Voigt elastic stiffness matrix
         by diagonalization and checking that they are all positive.
         See Born & Huang, "Dynamical Theory of Crystal Lattices" (1954) page 141.
         """
-        stable = False
         (eigenvalues, eigenvectors) = np.linalg.eig(self.Cvoigt)
-        if (np.amin(eigenvalues) > 0.0):
-            stable = True
-        else:
+        if not (np.amin(eigenvalues) > 0.0):
             print 'Eigenvalues:', eigenvalues
-            raise ValueError('Elastic tensor not stable to small strains (Voigt matrix is not positive definite)')
-        return stable
-        
+            raise ValueError('Elastic tensor is not stable to small strains (Voigt matrix is not positive definite) !')
+        if verbose: print 'Stability checked! Eigenvalues:', eigenvalues
+        return 
+    
+    def check_symmetry(self, tol=1e-5, verbose=True):
+        """
+        Check that the elastic constants matrix is symmetric
+        """
+        Ctemp       = self.Cvoigt.copy()
+        dC          = Ctemp.T - Ctemp
+        maxdC       = (np.abs(dC)).max()
+        if maxdC > tol: raise ValueError('Elastic tensor is not symmetric !')
+        if verbose: print 'Symmetry checked! Maximum element in dC =', maxdC
+        return
+    
     ###############################################################
     # Methods for specifying elastic parameters
     ###############################################################
     
+    def set_iso(self, vp, vs, rho, resetCijkl=True):
+        """
+        Set isotropic parameters given P and S wave velocity
+        ============================================================================
+        Input Parameters:
+        vp, vs  - P/S wave velocity (km/s)
+        rho     - Density (kg/m3) 
+        resetCijkl  - reset 4th order tensor or not
+        ============================================================================
+        """
+        vp  = vp*1e3
+        vs  = vs*1e3
+        self.Cvoigt[2,2] = vp*vp 
+        self.Cvoigt[5,5] = vs*vs 
+   
+        self.Cvoigt[0,0] = self.Cvoigt[2,2]; self.Cvoigt[1,1] = self.Cvoigt[2,2] 
+        self.Cvoigt[4,4] = self.Cvoigt[5,5]; self.Cvoigt[3,3] = self.Cvoigt[5,5]
+        self.Cvoigt[0,1] = self.Cvoigt[2,2]-2.*self.Cvoigt[3,3]
+        self.Cvoigt[0,2] = self.Cvoigt[0,1]; self.Cvoigt[1,2] = self.Cvoigt[0,1] 
+        #  convert to GPa
+        self.Cvoigt = self.Cvoigt*rho/1e9
+        # make symmetrical
+        for i in xrange(6):
+             for j in xrange(6):
+                 self.Cvoigt[j,i] = self.Cvoigt[i,j]
+        self.rho    = rho
+        if resetCijkl: self.Voigt2Cijkl()
+        return
+        
     def set_love(self, A, C, L, N, F, resetCijkl=True, mtype='VTI'):
         """
         Set Love parameters for a VTI media
@@ -818,40 +824,771 @@ class elasticTensor(object):
                                         [    0.,     0.,   0.0,     0., 58.27, -18.23],
                                         [    0.,     0.,   0.0,     0.,-18.23,  40.28]])
             self.rho=2649.7
-        else: raise NameError('Unexpected name of mineral!')
+        else: raise NameError('Unexpected name of mineral !')
         if resetCijkl: self.Voigt2Cijkl()
         return
     
+    ##########################################################################
+    # Methods for transformation of elastic tensor in fixed coordinate system
+    ##########################################################################
     
+    def rotT(self, axis, angle, resetCvoigt=True):
+        """
+        Rotate a 4th order elastic tensor with transformation matrix (rotation matrix),
+        the coordinate system is fixed. 
+        Note that the rotation is the inverse of rotation of a coordinate system.
+        ==================================================================================
+        Input Parameters:
+        axis            - 3 element sequence, vector specifying axis for rotation.
+        angle           - scalar, angle of rotation in degree.
+        ==================================================================================
+        ::: Note 1 :::
+        Define L[i,j] = e'[i] * e[j] as transformation matrix of the coordinate,
+        for axis = [0, 0, 1], rotation angle theta, we get:
+            L = [cos(theta)  sin(theta)   0
+                 -sin(theta) cos(theta)   0
+                    0           0         1 ]
+        And C'[i,j,k,l] = L[i,a]L[j,b]L[k,c]L[l,d]C[a,b,c,d]
+        Note that we actually need to rotate the tensor, thus the angle has opposite sign,
+        which is the case for the output from rot2mat.
+        For more details, see Riley's book(p931, third edition).
+        ::: Note 2 :::
+        The definition of L[i,j] may be different in other books.
+        Another definition is L[i,j] = e[i] * e'[j], in this case, we have:
+        C'[i,j,k,l] = L[a,i]L[b,j]L[c,k]L[d,l]C[a,b,c,d]
+        The rotation matrix from rot2mat should be changed if using this convention.
+        ==================================================================================
+        """
+        g  = rot2mat(axis=axis, angle=angle)
+        if use_opt_einsum:
+            self.Cijkl[:]=contract('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
+        else:
+            self.Cijkl[:]=np.einsum('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
+        if resetCvoigt: self.Cijkl2Voigt()
+        return
+    
+    def _test_rotT(self, v=np.array([1.,0.,0.]), axis=[0,0,1], angle=45.):
+        R=pysat.rot2mat(axis=axis, angle=angle)
+        vprime=np.einsum('ia,a->i', R, v)
+        print 'Testing rotation of a vector with fixed coordinate'
+        print 'v =',v,' vprime = ',vprime
+        return
+    
+    def rotB(self, axis, angle, resetCijkl=True):
+        """
+        Rotate Voigt matrix using Bond matrix (eq. 1.58 in Carcione, 2014)
+        Note that the rotation is the inverse of rotation of a coordinate system,
+        thus the rotation matrix used to construct Bond matrix is the inverse of the
+        rotation matrix in Bond's book (p12-13)
+        ============================================================================
+        Input Parameters:
+        axis            - 3 element sequence, vector specifying axis for rotation.
+        angle           - scalar, angle of rotation in degree.
+        resetCijkl      - reset 4th order tensor or not
+        ============================================================================
+        """
+        M           = bondmat(axis=axis, angle=angle)
+        self.Cvoigt = np.dot(M, self.Cvoigt)
+        self.Cvoigt = np.dot(self.Cvoigt, M.T)
+        if resetCijkl: self.Voigt2Cijkl()
+        return
+    
+    def rotTB(self, axis, angle, verbose=True):
+        """
+        Rotate elastic tensor with both rotT and rotB, output error if incompatible
+        ============================================================================
+        Input Parameters:
+        axis            - 3 element sequence, vector specifying axis for rotation.
+        angle           - scalar, angle of rotation in degree.
+        ============================================================================
+        """
+        et_temp = self.copy()
+        self.rotT(axis=axis, angle=angle)
+        et_temp.rotB(axis=axis, angle=angle)
+        if not np.allclose(self.Cvoigt, et_temp.Cvoigt):
+            raise ValueError('Inconsistent Rotation!')
+        else:
+            if verbose: print 'Consistent rotation!'
+        return
+    
+    def rot_dip_strike(self, dip, strike, method='default'):
+        """
+        Rotate elastic tensor dip and strike angle, original tensor should be VTI
+        Definition of geographical coordinate system:
+        x   - North; y   - East; z  - depth
+        ============================================================================
+        Input Parameters:
+        dip             - dip angle in degree (0<=dip<=90.)
+        strike          - strike angle in degree (0<=strike<360.)
+                            clockwise from North (x-axis)
+        method          - 'default' : rotate with dip and strike in two steps
+                          'euler'   : rotate with Euler angles
+        ============================================================================
+        """
+        if dip >90. or dip < 0.: raise ValueError('Dip should be within [0., 90.]!')
+        if method=='default':
+            self.rotTB(axis=[1,0,0], angle=dip)
+            self.rotTB(axis=[0,0,1], angle=strike)
+        elif method == 'euler':
+            g  = euler2mat(ai=dip, aj=0., ak=strike, axes='sxyz')
+            if use_opt_einsum:
+                self.Cijkl[:]=contract('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
+            else:
+                self.Cijkl[:]=np.einsum('ia,jb,kc,ld,abcd->ijkl', g, g, g, g, self.Cijkl)
+            self.Cijkl2Voigt()
+        return
+    
+    def rot_dip_strike2(self, dip, strike, verbose=True):
+        self.rot_dip_strike(dip=dip, strike=strike)
+        et_temp = self.copy()
+        et_temp.rot_dip_strike(dip=dip, strike=strike, method='euler')
+        if not np.allclose(self.Cvoigt, et_temp.Cvoigt):
+            raise ValueError('Inconsistent dip/strike Rotation!')
+        else:
+            if verbose: print 'Consistent dip/strike Rotation!'
+        return
+    
+    ##########################################################################
+    # Advanced methods
+    ##########################################################################
+    
+    def set_error(self, eCvoigt=np.zeros([6,6])): self.eCvoigt= eCvoigt
+        
+    def invert(self, resetCijkl=True):
+        """
+        Given a square matrix and a square matrix of the errors
+        on each element, return the inverse of the matrix and the 
+        propogated errors on the inverse.
+        We use numpy for the inversion and eq.10 of Lefebvre, 
+        Keeler, Sobie and White ('Propagation of errors for 
+        matrix inversion' Nuclear Instruments and Methods in 
+        Physics Research A 451 pp.520-528; 2000) to calculate 
+        the errors. The errors can be reported directly as the 
+        errors on the inverse matrix but to do useful further 
+        propogation we need to report the covar matrix too.
+        This is calculated from eq.9 and we then extract the 
+        diagonal elements to get the errors (rather than implementing
+        eq.10 too).
+        Tested with the matrix:
+                0.700(7) 0.200(2)
+                0.400(4) 0.600(6)               
+        which gives back the inverse and squared errors reported
+        in Table 1 of the above reference.
+        This is coded up for an elastic constants matrix (Cij) and 
+        its inverse (the elastic compliance matrix, Sij), but should
+        work for any rank 2 square matrix.
+        
+        Need benchmark!
+        """
+        Cij  = self.Cvoigt
+        eCij = self.eCvoigt
+        if eCij is None: raise ValueError('Need to specify error matrix!')
+        # Assuming we have a rank 2 square array
+        # of the same size for input array. 
+        if (np.ndim(Cij) != 2):
+            raise ValueError, "Matrix must be rank 2"
+        if (np.shape(Cij)[0] != np.shape(Cij)[1]):
+            raise ValueError, "Matrix must be square"
+        if (np.shape(Cij) != np.shape(eCij)):
+            raise ValueError, "Matrix and error matrix must have same rank and shape"
+        # Calculate the inverse using numpy
+        Sij = np.linalg.inv(Cij)
+        # Set up output arrays (init as zeros)
+        eSij = np.zeros_like(eCij)
+        array_size = eSij[0].size
+        vcovSij = np.zeros((array_size,array_size,array_size,array_size),dtype=type(eSij))
+        # Build covariance arrays (i.e COV(C^-1[a,b],S^-1[b,c] - a 4d array).
+        # This is an implementation of eq.9 of Lefebvre et al.
+        for a in xrange (array_size):
+            for b in xrange (array_size):
+                for c in xrange (array_size):
+                    for d in xrange (array_size):
+                        for i in xrange (array_size):
+                            for j in xrange (array_size):
+                                vcovSij[a,b,c,d] = vcovSij[a,b,c,d] + \
+                                 ((Sij[a,i]*Sij[c,i]) * (eCij[i,j]**2) * (Sij[j,b]*Sij[j,d]))
+        # Extract the "diagonal" terms, which are
+        # the errors on the elements of the inverse
+        # and could also be calculated using eq.10
+        for a in xrange (array_size):
+            for b in xrange (array_size):                
+                eSij[a,b] = np.sqrt(vcovSij[a,b,a,b])
+        self.Cvoigt     = Sij
+        self.eCvoigt    = eSij
+        self.vcovCvoigt = vcovSij
+        self.compl      = not self.compl
+        if resetCijkl: self.Voigt2Cijkl()
+        return 
+    
+    def VRHavg(self):
+        """
+        Compute Voight-Reuss-Hill average of elastic constants tensor
+        and propogated error given the 6*6 matrix of elastic constants
+        and the 6*6 matrix of errors. The errors are optional. Assumes
+        no co-varance between the errors on the elastic constants but 
+        does include the covariance on the (calculated) compliance 
+        matrix.
+        Need benchmark!
+        """
+        if self.compl: raise ValueError('Elastic tensor is compliance!')
+        Cij = self.Cvoigt
+        eCij= self.eCvoigt
+        # Need compliances too:
+        if eCij is None:
+            sij = np.linalg.inv(Cij)
+        else:
+            complTensor = self.copy()
+            complTensor.invert()
+            sij = complTensor.Cvoigt
+            eSij= complTensor.eCvoigt
+            covSij = complTensor.vcovCvoigt
+        # These equations are valid for all crystal systems (only 9 of 
+        # the 21 elastic constants ever have to be used, e.g. see Anderson 
+        # theory of the Earth, pg. 122 or the introduction to Hill, 1952).
+        voigtB = (1.0/9)*(Cij[0,0] + Cij[1,1] + Cij[2,2] ) \
+               + (2.0/9)*(Cij[0,1] + Cij[0,2] + Cij[1,2])
+        if eCij is not None:
+            evB = np.sqrt( (1.0/81)*(eCij[0,0]**2 + eCij[1,1]**2 + eCij[2,2]**2) \
+                      +(2.0/81)*(eCij[0,1]**2 + eCij[0,2]**2 + eCij[1,2]**2) )
+        reussB = 1.0/((sij[0,0]+sij[1,1]+sij[2,2]) + 2*(sij[0,1]+sij[0,2]+sij[1,2]))
+        if eCij is not None:
+            # Note that COV(X+Z,Y) = COV(X,Y)+COV(Z,Y) and 
+            # COV(SUM(Xi),SUM(Yj)) = SUM(SUM(COV(Xi,Yj)
+            # c.f. http://mathworld.wolfram.com/Covariance.html
+            erB = (np.sqrt(eSij[0,0]**2 + eSij[1,1]**2 + eSij[2,2]**2  \
+                       + 4*eSij[0,1]**2 + 4*eSij[0,2]**2 + 4*eSij[1,2]**2  \
+                       + 2*covSij[0,0,1,1] + 2*covSij[0,0,2,2] + 2*covSij[1,1,2,2] \
+                       + 4*covSij[0,0,0,1] + 4*covSij[0,0,0,2] + 4*covSij[0,0,1,2] \
+                       + 4*covSij[1,1,0,1] + 4*covSij[1,1,0,2] + 4*covSij[1,1,1,2] \
+                       + 4*covSij[2,2,0,1] + 4*covSij[2,2,0,2] + 4*covSij[2,2,1,2] \
+                       + 8*covSij[0,1,0,2] + 8*covSij[0,1,1,2] + 8*covSij[0,2,1,2] )) \
+                * reussB**2
+        voigtG = (1.0/15)*(Cij[0,0] + Cij[1,1] + Cij[2,2] - \
+                           Cij[0,1] - Cij[0,2] - Cij[1,2]) + \
+                 (1.0/5)*(Cij[3,3] + Cij[4,4] + Cij[5,5])
+        if eCij is not None:
+            evG = np.sqrt( (1.0/225)*(eCij[0,0]**2 + eCij[1,1]**2 + \
+                                  eCij[2,2]**2 + eCij[0,1]**2 + \
+                                  eCij[0,2]**2 + eCij[1,2]**2) + \
+                        (1.0/25)*(eCij[3,3]**2 + eCij[4,4]**2 + eCij[5,5]**2) )
+        reussG = 15.0/(4*(sij[0,0]+sij[1,1]+sij[2,2]) - \
+                       4*(sij[0,1]+sij[0,2]+sij[1,2]) + 3*(sij[3,3]+sij[4,4]+sij[5,5]))
+        if eCij is not None:
+            erG = np.sqrt( \
+                      16*(eSij[0,0]**2 + eSij[1,1]**2 + eSij[2,2]**2) \
+                    + 16*(eSij[0,1]**2 + eSij[0,2]**2 + eSij[1,2]**2) \
+                    +  9*(eSij[3,3]**2 + eSij[4,4]**2 + eSij[5,5]**2) \
+                    + 32*covSij[0,0,1,1] + 32*covSij[0,0,2,2] + 32*covSij[1,1,2,2] \
+                    + 32*covSij[0,0,0,1] + 32*covSij[0,0,0,2] + 32*covSij[0,0,1,2] \
+                    + 32*covSij[1,1,0,1] + 32*covSij[1,1,0,2] + 32*covSij[1,1,1,2] \
+                    + 32*covSij[2,2,0,1] + 32*covSij[2,2,0,2] + 32*covSij[2,2,1,2] \
+                    + 32*covSij[0,1,0,2] + 32*covSij[0,1,1,2] + 32*covSij[0,2,1,2] \
+                    + 24*covSij[0,0,3,3] + 24*covSij[0,0,4,4] + 24*covSij[0,0,5,5] \
+                    + 24*covSij[1,1,3,3] + 24*covSij[1,1,4,4] + 24*covSij[1,1,5,5] \
+                    + 24*covSij[2,2,3,3] + 24*covSij[2,2,4,4] + 24*covSij[2,2,5,5] \
+                    + 24*covSij[0,1,3,3] + 24*covSij[0,1,4,4] + 24*covSij[0,1,5,5] \
+                    + 24*covSij[0,2,3,3] + 24*covSij[0,2,4,4] + 24*covSij[0,2,5,5] \
+                    + 24*covSij[1,2,3,3] + 24*covSij[1,2,4,4] + 24*covSij[1,2,5,5] \
+                    + 18*covSij[3,3,4,4] + 18*covSij[3,3,5,5] + 18*covSij[4,4,5,5] \
+                    ) * (reussG**2 / 15)
+        if eCij is not None:
+            return (voigtB, reussB, voigtG, reussG, ((voigtB+reussB)/2.0), ((voigtG+reussG)/2.0),
+                   evB, erB, evG, erG, ((evB+erB)/2), ((evG+erG)/2))
+        else:
+            return (voigtB, reussB, voigtG, reussG, ((voigtB+reussB)/2.0), ((voigtG+reussG)/2.0),
+                   None, None, None, None, None, None)
+
+    def zenerAniso(self, eCvoigt=None):
+        """
+        Compute Zener anisotropy index, A, defined as
+        2*C44/(C11-C12). This is unity for an isotropic crystal 
+        and, for a cubic crystal C44 and 1/2(C11-C12) are shear 
+        strains accross the (100) and (110) planes, respectivly.
+        See Zener, Elasticity and Anelasticity of Metals, 1948
+        or doi:10.1103/PhysRevLett.101.055504 (c.f. uAniso).
+        Also returns the error on the anisotriopy index.
+        Note that we don't check that the crystal is cubic!
+        """
+        Cij  = self.Cvoigt
+        if eCvoigt is None: eCij = self.eCvoigt
+        else: eCij = eCvoigt
+        zA = (Cij[3,3]*2)/(Cij[0,0]-Cij[0,1])
+        if eCij is None:
+            return zA, None
+        else:
+            ezA = np.sqrt(((eCij[0,0]/Cij[0,0])**2 + (eCij[0,1]/Cij[0,1])**2) +\
+               (2*(eCij[3,3]/Cij[3,3])**2)) * zA
+            return (zA, ezA)
+
+    def uAniso(self):
+        """
+        Returns the Universal elastic anisotropy index defined 
+        by Ranganathan and Ostoja-Starzewski (PRL 101, 05504; 2008
+        doi:10.1103/PhysRevLett.101.055504 ). Valid for all systems.
+        """
+        (voigtB, reussB, voigtG, reussG, hillB, hillG, 
+                           evB, erB, evG, erG, ehB, ehG) = self.VRHavg()
+        eCij= self.eCvoigt
+        uA = (5*(voigtG/reussG))+(voigtB/reussB)-6
+        if eCij is None:
+            return uA, None
+        else:
+            euA = np.sqrt((np.sqrt((evG/voigtG)**2 + (erG/reussG)**2)*(voigtG/reussG))**2 + \
+                      (np.sqrt((evB/voigtB)**2 + (erB/reussB)**2)*(voigtB/reussB))**2)
+            return (uA, euA)
+
+    def youngsmod(self, eCvoigt=np.zeros((6,6))):
+        """
+        Returns the Young's moduli, Poission ratio 
+        and errors. Young's moduli is the ratio of tensile
+        stress to tensile strain. Poission's ratios are ratio
+        of tensile elongation and transverse contraction.
+        """
+        complTensor = self.copy()
+        if complTensor.eCvoigt is None:  complTensor.set_error(eCvoigt=eCvoigt)
+        complTensor.invert()
+        sij     = complTensor.Cvoigt
+        esij    = complTensor.eCvoigt
+        covsij  = complTensor.vcovCvoigt
+        
+        youngX  = 1/sij[0,0]
+        youngY  = 1/sij[1,1]
+        youngZ  = 1/sij[2,2]
+    
+        eyoungX = (esij[0,0]/sij[0,0])*youngX
+        eyoungY = (esij[1,1]/sij[1,1])*youngY
+        eyoungZ = (esij[2,2]/sij[2,2])*youngZ
+    
+        poissonXY = -1*sij[0,1]*youngX
+        poissonXZ = -1*sij[0,2]*youngX
+        poissonYX = -1*sij[1,0]*youngY
+        poissonYZ = -1*sij[1,2]*youngY
+        poissonZX = -1*sij[2,0]*youngZ
+        poissonZY = -1*sij[2,1]*youngZ
+    
+        epoissonXY = np.sqrt((esij[0,1]/sij[0,1])**2 + (esij[0,0]/sij[0,0])**2 - 
+            2.0*((esij[0,1]*esij[0,0])/(sij[0,1]*sij[0,0]))*covsij[0,1,0,0])*poissonXY
+        epoissonXZ = np.sqrt((esij[0,2]/sij[0,2])**2 + (esij[0,0]/sij[0,0])**2 - 
+            2.0*((esij[0,2]*esij[0,0])/(sij[0,2]*sij[0,0]))*covsij[0,2,0,0])*poissonXZ
+        epoissonYX = np.sqrt((esij[1,0]/sij[1,0])**2 + (esij[1,1]/sij[1,1])**2 - 
+            2.0*((esij[1,0]*esij[1,1])/(sij[1,0]*sij[1,1]))*covsij[1,0,1,1])*poissonYX
+        epoissonYZ = np.sqrt((esij[1,2]/sij[1,2])**2 + (esij[1,1]/sij[1,1])**2 - 
+            2.0*((esij[1,2]*esij[1,1])/(sij[1,2]*sij[1,1]))*covsij[1,2,1,1])*poissonYZ
+        epoissonZX = np.sqrt((esij[2,0]/sij[2,0])**2 + (esij[2,2]/sij[2,2])**2 - 
+            2.0*((esij[2,0]*esij[2,2])/(sij[2,0]*sij[2,2]))*covsij[2,0,2,2])*poissonZX
+        epoissonZY = np.sqrt((esij[2,1]/sij[2,1])**2 + (esij[2,2]/sij[2,2])**2 - 
+            2.0*((esij[2,1]*esij[2,2])/(sij[2,1]*sij[2,2]))*covsij[2,1,2,2])*poissonZY
+    
+        return (youngX, youngY, youngZ, eyoungX, eyoungY, eyoungZ,
+               poissonXY, poissonXZ, poissonYX, poissonYZ, poissonZX, poissonZY,
+               epoissonXY, epoissonXZ, epoissonYX, epoissonYZ, epoissonZX, epoissonZY)
+
+    def hessian_christoffelmat(self):
+        """
+        Return the hessian of the dynamical matrix.
+        Due to the definition of the dynmat (q.C.q), this is independent of q.
+        hessianmat[i][j][k][l] = d^2 M_kl / dx_i dx_j (note the indices).
+        """
+        hessianmat = np.empty((3, 3, 3, 3))
+        for i in xrange(3):
+            for j in xrange(3):
+                for k in xrange(3):
+                    for l in xrange(3):
+                        hessianmat[i][j][k][l] = self.Cijkl[k][i][j][l] + self.Cijkl[k][j][i][l]
+        return hessianmat
+        
 class Christoffel(object):
     """
-    Contains all information about the material, such as
-    density and stiffness tensor. Given a reciprocal vector
-    (sound wave direction), it can produce phase and group
-    velocities and associated enhancement factors.
-
-    After initialization, set a wave vector direction with
-    set_direction or set_direction_spherical, after which any and all
-    information can be gained from the get_* functions. All calculations
-    will be done on the fly on a need-to-know basis.
-
-    Keyword arguments:
-    stiffness -- 6x6 stiffness tensor in GPa
-    density -- density of the material in kg/m^3
+    An object for solving (Kelvin-)Christoffel equation
+    ===================================================================================
+    Input Parameters:
+    etensor     - elastic tensor object (type - elasticTensor)
+    pv          - wave propagation direction vector
+    -----------------------------------------------------------------------------------
+    Output Parameters:
+    kcmat       - Kelvin-Christoffel Matrix (3*3, unit: Gpa)
+    grad_mat    - gradient of Kelvin-Christoffel Matrix (3*3*3, unit: Gpa)
+    ----------------------
+    --- Phase velocity ---
+    ----------------------
+    phvel       - phase velocities (3*1, unit: km/s)
+    theta, phi  - polar angle, azimuth (scalar, unit: degree)
+    eig_val     - eigenvalues of Kelvin-Christoffel equation (3*1, unit: GPa)
+    eig_vec     - eigenvectors of Kelvin-Christoffel equation (polarization, 3*3)
+    ----------------------
+    --- Group velocity ---
+    ----------------------
+    grvel       - group velocities (3*1, unit: km/s)
+    group_pv    - group velocity propagation vector (3*3)
+    group_theta,- polar angle, azimuth of group velocity (3*1, unit: degree)
+    group_phi  
+    grad_eig_val- gradient of eigenvalues of Kelvin-Christoffel equation (3*3, unit: GPa)
+    group_vec   - group velocity polorization vector (3*3)
+    --------------
+    --- Others ---
+    --------------
+    powflow_angle   - power flow angle (unit: degree)
+                    (the angle between group/phase velocity propagation vector)
+    cos_pf_angle    - cosine of power flow angle
+    hessian_eig     - Hessian matrix of eigenvalues (3*3*3)
+    ===================================================================================
     """
 
-    def __init__(self, etensor):
-        self.bulk = get_bulk(stiffness)
-        self.shear = get_shear(stiffness)
-        self.iso_P, self.iso_S = isotropic_velocities(self.bulk, self.shear, density)
-
-        stiffness = 0.5 * ( stiffness + stiffness.T)
-        self.stiffness = np.array(de_voigt(stiffness))
-        self.stiffness *= 1000.0/density
-        self.density = density
-
-        self.hessian_mat = hessian_christoffelmat(self.stiffness)
-
+    def __init__(self, etensor, verbose=True, isotype='voigt'):
+        # check input elastic tensor
+        if not isinstance(etensor, elasticTensor): raise TypeError('Input object is not elasticTensor type!')
+        etensor.check_stability(verbose=verbose)
+        etensor.check_symmetry(verbose=verbose)
+        etensor.is_isotropic(verbose=verbose)
+        # Set values
+        self.etensor    = etensor
+        VRHavg          = etensor.VRHavg()
+        self.voigtB     = VRHavg[0]
+        self.reussB     = VRHavg[1]
+        self.voigtG     = VRHavg[2]
+        self.reussG     = VRHavg[3]
+        self.VRHB       = VRHavg[4]
+        self.VRHG       = VRHavg[5]
+        if isotype  =='voigt': self.iso_P, self.iso_S = get_vel(self.voigtB, self.voigtG, self.etensor.rho)
+        elif isotype=='reuss': self.iso_P, self.iso_S = get_vel(self.reussB, self.reussG, self.etensor.rho)
+        elif isotype=='VRH': self.iso_P, self.iso_S = get_vel(self.VRHB, self.VRHG, self.etensor.rho)
+        else: raise TypeError('Unexpected isotropic type !')
+        self.hessian_mat = etensor.hessian_christoffelmat()
         self.clear_direction()
+        return
+    
+    def copy(self): return copy.deepcopy(self)
+            
+    def clear_direction(self):
+        """Clear all direction-dependent data"""
+        self.pv             = None
+        self.theta          = None
+        self.phi            = None
+        self.kcmat          = None
+        self.grad_mat       = None
+        self.eig_val        = None
+        self.eig_vec        = None
+        self.phvel          = None
+        self.grvel          = None
+        self.group_vec      = None
+        self.group_pv       = None
+        self.group_theta    = None
+        self.group_phi      = None
+        self.grad_eig_val   = None
+        self.powflow_angle  = None
+        self.cos_pf_angle   = None
+        self.hessian_eig    = None
+        self.enhancement    = None
+        return
+    
+    def set_direction_cartesian(self, pv, is_normalized=False):
+        """
+        Define a wave propagation vector in Cartesian coordinates.
+        It is always explicitly normalized to lie on the unit sphere.
+        ============================================================================
+        Input Parameters:
+        pv              - wave propagation direction vector
+                            list of 3 numbers of numpy array (e.g. [1, 0, 0])
+        is_normalized   - whether the pv is unit vector or not
+        ============================================================================
+        """
+        self.clear_direction()
+        if not isinstance(pv, np.ndarray): pv = np.asarray(pv)
+        x, y, z = pv
+        if not is_normalized:
+            n = np.sqrt(x*x + y*y + z*z)
+            x = x/n
+            y = y/n
+            z = z/n
+        if z >= 1.0 or z <= -1.0:
+            if z > 0.0: self.theta = 0.0
+            else: self.theta = np.pi
+            self.phi = 0.0
+        else:
+            self.theta  = np.arccos(z)
+            sin_theta   = np.sqrt(1 - z**2)
+            cos_phi     = x/sin_theta
+            self.phi    = np.arccos(cos_phi)
+            if y < 0.0: self.phi = 2.0*np.pi - self.phi
+        self.theta      = self.theta*180./np.pi
+        self.phi        = self.phi*180./np.pi
+        self.pv         = pv/n
+        self.get_kc_mat()
+        return
+    
+    def set_direction_spherical(self, theta, phi):
+        """
+        Define a wave vector in spherical coordinates (degree).
+        x = cos(phi) * sin(theta)
+        y = sin(phi) * sin(theta)
+        z = cos(theta)
+        ==========================================================
+        Input Parameters:
+        theta   - polar angle (degree)
+        phi     - azimuth (degree)
+        ==========================================================
+        """
+        self.clear_direction()
+        self.theta      = theta
+        self.phi        = phi
+        theta   = theta/180.*np.pi
+        phi     = phi/180.*np.pi
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        sin_phi = np.sin(phi)
+        cos_phi = np.cos(phi)
+        x = cos_phi * sin_theta
+        y = sin_phi * sin_theta
+        z = cos_theta
+        self.pv = np.array([x, y, z])
+        self.get_kc_mat()
+        return
+    
+    def set_direction_random(self):
+        """
+        Generates a random wave vector direction.
+        The distribution is uniform across the unit sphere.
+        """
+        self.clear_direction()
+        cos_theta = np.random.ranf()
+        phi = 2.0 * np.pi * np.random.ranf()
+        sin_theta = np.sqrt(1 - cos_theta**2)
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
+        self.pv     = np.array([cos_phi*sin_theta, sin_phi*sin_theta, cos_theta])
+        self.phi    = phi*180./np.pi
+        self.theta  = np.arccos(cos_theta)*180./np.pi
+        self.get_kc_mat()
+        return
+    
+    def get_kc_mat(self):
+        """
+        Get the Kelvin-Christoffel Matrix (e.g. Babuska & Cara p16)
+        ==========================================================
+        Output:
+        self.kcmat  - Kelvin-Christoffel Matrix (3*3, unit: Gpa)
+        ==========================================================
+        """
+        kcmat1  = np.einsum('j,k, ijkl->il', self.pv, self.pv, self.etensor.Cijkl)
+        kcmat2  = np.dot(self.pv, np.dot(self.pv, self.etensor.Cijkl))
+        if not np.allclose(kcmat1, kcmat2): raise ValueError('Error Christoffel Matrix')
+        self.kcmat=kcmat1
+        return
+    
+    def get_phvel(self):
+        """
+        Determine eigenvalues, eigenvectors of the Kelvin-Christoffel equation,
+        sort from low to high, then store eigens and phase velocities.
+        ========================================================================================
+        Output:
+        self.eig_val    - eigenvalues  (3*1, unit: Gpa)
+        self.eig_vec    - eigenvectors (3*3, denote polirization direction of the wave)
+        self.phvel      - phase velocity (3*1, unit: km/s)
+        ========================================================================================
+        """
+        eig_val, eig_vec = np.linalg.eigh(self.kcmat)
+        args    = np.argsort(eig_val)
+        eig_val = eig_val[args]
+        eig_vec = eig_vec.T[args]
+        self.eig_val= eig_val
+        self.eig_vec= eig_vec
+        # eig_val has unit of Gpa
+        self.phvel  = np.sign(eig_val)*np.sqrt(np.absolute(eig_val) * 1000. / self.etensor.rho )
+        return
+    
+    def get_grad_mat(self):
+        """
+        Calculate the gradient of the Kelvin-Christoffel matrix.
+        d/dx_k M_ij =  q_m * ( C_imkj + C_ikmj )
+        gradmat[k][i][j] =  d/dx_k M_ij (note the indices)
+        ========================================================================================
+        Output:
+        self.grad_mat  - gradient of the Kelvin-Christoffel Matrix (3*3*3, unit: Gpa)
+        ========================================================================================
+        """
+        gradmat1 = np.einsum('m, ikmj->kij', self.pv, self.etensor.Cijkl) + \
+                    np.einsum('m, imkj->kij', self.pv, self.etensor.Cijkl)
+        ###
+        pv  = self.pv
+        C   = self.etensor.Cijkl
+        gradmat2 = np.dot(pv, C + np.transpose(C, (0, 2, 1, 3)))
+        gradmat2 = np.transpose(gradmat2, (1, 0, 2))
+        ###
+        if not np.allclose(gradmat1, gradmat2): raise ValueError('Error gradient Christoffel Matrix')
+        self.grad_mat = gradmat1
+        return
+    
+    def get_group_velocity(self):
+        """
+        Calculate group velocities as the gradient of the phase velocities.
+        Powerflow angles are also calculated and stored.
+        ========================================================================================
+        Output:
+        self.grvel          - group velocities (3*1, unit: km/s)
+        self.group_pv       - group velocity propagation vector 
+        self.group_theta    - group velocity polar angles (3*1, unit: degree)
+        self.group_phi      - group velocity azimuth (3*1, unit: degree)
+        self.group_vec      - group velocity polorization vector (3*3)
+        self.grad_eig_val   - gradient of eigenvalues (3*3, unit: GPa)
+        self.cos_pf_angle   - cosine of power flow angle (3*1)
+        self.powflow_angle  - power flow angle (3*1, unit: degree)
+                                (the angle between group/phase velocity propagation vector)
+        ========================================================================================
+        """
+        if self.phvel is None: self.get_phvel()
+        if self.grad_mat is None: self.get_grad_mat()
+        phase_vel   = self.phvel
+        eig_vec     = self.eig_vec
+        gradmat     = self.grad_mat * 1000. / self.etensor.rho 
+
+        grad_eig        = np.empty((3, 3))
+        group_vec       = np.empty((3, 3))
+        self.grvel      = np.empty(3)
+        self.group_pv   = np.empty((3, 3))
+        self.group_theta= np.empty(3)
+        self.group_phi  = np.empty(3)
+        for pol in xrange(3):
+            for cart in xrange(3):
+                grad_eig[pol][cart] = \
+                np.dot(eig_vec[pol], np.dot(gradmat[cart], eig_vec[pol]))
+                # Eigenvalues are the square of the velocity
+                # dv/dq = dv^2/dq / (2v)
+                group_vec[pol][cart] = grad_eig[pol][cart] / (2*phase_vel[pol])
+            self.grvel[pol] = np.linalg.norm(group_vec[pol], 2)
+            self.group_pv[pol] = group_vec[pol] / self.grvel[pol]
+
+            x = self.group_pv[pol][0]
+            z = self.group_pv[pol][2]
+            if z >= 1.0-1e-10 or z <= -1.0+1e-10:
+                self.group_theta[pol] = 0.0
+                self.group_phi[pol] = 0.0
+            else:
+                self.group_theta[pol] = np.arccos(z)
+                sin_theta = np.sqrt(1 - z**2)
+                if abs(x) > sin_theta:
+                    self.group_phi[pol] = (1.0 - np.sign(x))*0.5*np.pi
+                else:
+                    self.group_phi[pol] = np.arccos(x/sin_theta)
+                if self.group_pv[pol][1] < 0.0:
+                    self.group_phi[pol] = 2*np.pi - self.group_phi[pol]
+        # In case things go wrong, check if phase_vel == np.dot(group_vec, pv)
+        self.grad_eig_val   = grad_eig * self.etensor.rho / 1000.
+        self.group_vec      = group_vec 
+        self.cos_pf_angle   = np.dot(self.group_pv, self.pv)
+        self.powflow_angle  = np.arccos(np.around(self.cos_pf_angle, 10))/np.pi*180.
+        self.group_theta    = self.group_theta*180./np.pi
+        self.group_phi      = self.group_phi*180./np.pi
+        if not np.allclose( self.phvel, np.dot(self.group_vec, self.pv)):
+            raise ValueError('Inconsistent phase/group velocities!')
+        return
+    
+    def get_hessian_eig(self):
+        """
+        Calculate the hessian of the eigenvalues.
+        Hessian[n][i][j] = d^2 lambda_n / dx_i dx_j
+        """
+        dynmat  = self.kcmat
+        eig_val = self.eig_val
+        eig_vec = self.eig_vec
+        gradmat = self.grad_mat
+        hess_mat= self.hessian_mat
+        hessian = np.zeros((3, 3, 3))
+        idmat   = np.identity(3)
+        for n in xrange(3):
+            hessian[n] += np.dot(np.dot(hess_mat, eig_vec[n]), eig_vec[n])
+            pseudoinv = np.linalg.pinv(eig_val[n]*idmat - dynmat, rcond=1e-10)
+            deriv_vec = np.dot(gradmat, eig_vec[n])
+            hessian[n] += 2.0 * np.dot(np.dot(deriv_vec, pseudoinv), deriv_vec.T)
+            #Take deriv of eigenvec into account: 2 * (d/dx s_i) * pinv_ij * (d_dy s_j)
+        self.hessian_eig = hessian
+        return
+    
+    def get_enhancement(self, approx=False, num_steps=8, delta=1e-5):
+        if self.phvel is None: self.get_phvel()
+        if self.grad_mat is None: self.get_grad_mat()
+        if self.grvel is None: self.get_group_velocity()
+        if self.hessian_eig is None: self.get_hessian_eig()
+        tempChr=self.copy()
+        if not approx:
+            hessian     = self.hessian_eig
+            phase_vel   = self.phvel
+            group_vec   = self.group_vec
+            group_abs   = self.grvel
+            grad_group  = np.empty((3, 3, 3))
+            enhance     = np.empty(3)
+            for n in xrange(3):
+                grad_group[n] = hessian[n] / group_abs[n]
+                grad_group[n] -= np.outer(group_vec[n], np.dot(hessian[n], group_vec[n])) / (group_abs[n]**3)
+                grad_group[n] /= 2.0*phase_vel[n] #grad lambda = 2 * v_p * v_g
+    
+                enhance[n] = 1.0 / np.linalg.norm( (np.dot(cofactor(grad_group[n]), self.pv)), 2)
+            self.enhancement = enhance
+        else:
+            phase_grid  = np.empty((num_steps+1, 3))
+            group_grid  = np.empty((num_steps+1, 3, 3))
+    
+            center_theta= self.theta/180.*np.pi
+            center_phi  = self.phi/180.*np.pi
+            phase_center= self.pv
+    
+            for i in xrange(num_steps):
+                angle = i*2.0*np.pi/num_steps
+                tempChr.set_direction_spherical( (center_theta + np.sin(angle)*delta)/np.pi*180., (center_phi + np.cos(angle)*delta)/np.pi*180.)
+                phase_grid[i] = tempChr.pv
+                if tempChr.group_pv is None: tempChr.get_group_velocity()
+                group_grid[i] = tempChr.group_pv
+    
+            phase_grid[num_steps] = phase_grid[0]
+            group_grid[num_steps] = group_grid[0]
+            tempChr.set_direction_cartesian(phase_center)
+            if tempChr.grvel is None: tempChr.get_group_velocity()
+            group_center = tempChr.group_pv
+    
+            phase_area  = 0.0
+            group_area  = np.zeros(3)
+            tot_angle   = np.zeros(3)
+            for i in xrange(num_steps):
+                phase_area += np.linalg.norm ( (np.cross(phase_grid[i] - phase_center, phase_grid[i+1] - phase_center)), 2)
+                for n in xrange(3):
+                    group_area[n] += np.linalg.norm ( np.cross(group_grid[i][n] - group_center[n], group_grid[i+1][n] - group_center[n]), 2)
+            self.enhancement = phase_area/group_area
+        return
+    
+
+    def find_nopowerflow(self, step_size=0.9, eig_id=2, max_iter=900):
+        """
+        Attempts to find the closest direction of extremal phase velocity,
+        where group and phase directions align. A positive step_size should
+        search for maxima, while negative step_size searches for minima.
+        Due to the complicated nature of the ray surfaces of the quasi-shear
+        modes (eig_id 0 and 1), there is no guarantee that this algorithm
+        will converge or reliably find an extremal velocity.
+        If a direction has been set already, the search will start from there
+        and follow the general direction of power flow. Otherwise, the search
+        will start from a randomly chosen point.
+        """
+        if self.pv is None:
+            self.set_direction_random()
+
+        phase_dir = self.pv
+        if self.group_pv is None: self.get_group_velocity()
+        group_dir = self.group_pv
+
+        step_dir = group_dir[eig_id] - phase_dir
+        if max_iter <= 0 or np.linalg.norm(step_dir, 2 ) < 1e-10:
+            return
+        else:
+            self.set_direction_cartesian(phase_dir + step_size*step_dir)
+            max_iter -= 1
+            self.find_nopowerflow(step_size, eig_id, max_iter)
+        return
     
     
+
+
+        
+    
+    
+    
+
+
