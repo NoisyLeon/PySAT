@@ -37,6 +37,7 @@ try:
     from opt_einsum import contract
     use_opt_einsum=True
 except: use_opt_einsum=False
+import mayavi.mlab 
 
 ########################################################################################################
 # axis sequences for Euler angles
@@ -1679,6 +1680,17 @@ class Christoffel(object):
         self.phiArr     = dset.auxiliary_data['PySAT']['phi'].data.value
         self.phvelArr   = dset.auxiliary_data['PySAT']['phvel'].data.value
         self.eigvecArr  = dset.auxiliary_data['PySAT']['eigvec'].data.value
-        return
+        theta       = self.thetaArr/180.*np.pi
+        phi         = self.phiArr/180.*np.pi
+        sin_theta   = np.sin(theta)
+        cos_theta   = np.cos(theta)
+        sin_phi     = np.sin(phi)
+        cos_phi     = np.cos(phi)
+        x           = cos_phi * sin_theta
+        y           = sin_phi * sin_theta
+        z           = cos_theta
+        s           = self.phvelArr[0,:,:]
+        mayavi.mlab.plot3d(x.reshape(theta.size, 1),y.reshape(theta.size, 1),z.reshape(theta.size, 1),s.reshape(theta.size, 1))
+        return x, y, z, s
 
 
