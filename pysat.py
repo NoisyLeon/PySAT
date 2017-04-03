@@ -8,6 +8,11 @@ The Python Seismic Anisotropy Toolkit
     CIEI, Department of Physics, University of Colorado Boulder
     email: lili.feng@colorado.edu
     
+:Dependencies:
+    pyasdf 0.1.4
+    mayavi 4.5.0
+    cartopy 0.15.1
+    
 :References:
     Bond, W.L., 1943. The mathematics of the physical properties of crystals.
         Bell Labs Technical Journal, 22(1), pp.1-72.
