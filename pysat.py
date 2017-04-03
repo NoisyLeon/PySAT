@@ -37,9 +37,10 @@ try:
     from opt_einsum import contract
     use_opt_einsum=True
 except: use_opt_einsum=False
-from mpl_toolkits.mplot3d import Axes3D
+import cartopy.crs as ccrs
 from matplotlib import cm
 import matplotlib.pyplot as plt
+from numba import jit, float32, int32
 ########################################################################################################
 # axis sequences for Euler angles
 _NEXT_AXIS = [1, 2, 0, 1]
@@ -384,6 +385,14 @@ def cofactor(m):
     if not np.allclose( cof, cof2):
         raise ValueError('Inconsistent cofactor matrix!')
     return cof
+
+def localcartesian2spherical(x, y, z, theta, phi, r=100):
+    theta   = theta/180.*np.pi
+    phi     = phi/180.*np.pi
+    m=np.array([   [np.sin(theta)*np.cos(phi), r*np.cos(theta)*np.sin(phi), -r*np.sin(theta)*np.sin(phi)],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0]])
+    
 
 class elasticTensor(object):
     """
@@ -1878,7 +1887,7 @@ class Christoffel(object):
         oaxes=mayavi.mlab.orientation_axes()
         return
     
-    def plot2d(self, size=(1000, 700), datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
+    def plot2d(self, size=(1000, 700), cmap='jet_r', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
         """
         Plot 3D pole figure using mayavi 
         ============================================================================================
@@ -1901,50 +1910,42 @@ class Christoffel(object):
         """
         # Get data for plot
         # Position data
-        theta       = self.thetaArr/180.*np.pi
-        phi         = self.phiArr/180.*np.pi
-        sin_theta   = np.sin(theta)
-        cos_theta   = np.cos(theta)
-        sin_phi     = np.sin(phi)
-        cos_phi     = np.cos(phi)
-        x           = cos_phi * sin_theta
-        y           = sin_phi * sin_theta
-        z           = cos_theta
-        xp          = 1.05*cos_phi * sin_theta
-        yp          = 1.05*sin_phi * sin_theta
-        zp          = 1.05*cos_theta
+        lonArr = self.phiArr.T; latArr = (90.-self.thetaArr).T
+        lonp = lonArr.copy(); latp=latArr.copy()
+        lon0=phi0; lat0=90.-theta0
         if datatype == 'phase':
-            s1      = self.phvelArr[0,:,:]
-            s2      = self.phvelArr[1,:,:]
-            p       = self.phvelArr[2,:,:]
+            s1      = (self.phvelArr[0,:,:]).T
+            s2      = (self.phvelArr[1,:,:]).T
+            p       = (self.phvelArr[2,:,:]).T
             if polarization:
-                u1  = self.eigvecArr[0,0,:,:]
-                v1  = self.eigvecArr[0,1,:,:]
-                w1  = self.eigvecArr[0,2,:,:]
-                u2  = self.eigvecArr[1,0,:,:]
-                v2  = self.eigvecArr[1,1,:,:]
-                w2  = self.eigvecArr[1,2,:,:]
+                u1  = (self.eigvecArr[0,0,:,:]).T
+                v1  = (self.eigvecArr[0,1,:,:]).T
+                w1  = (self.eigvecArr[0,2,:,:]).T
+                u2  = (self.eigvecArr[1,0,:,:]).T
+                v2  = (self.eigvecArr[1,1,:,:]).T
+                w2  = (self.eigvecArr[1,2,:,:]).T
         elif datatype == 'group':
-            s1      = self.grvelArr[0,:,:]
-            s2      = self.grvelArr[1,:,:]
-            p       = self.grvelArr[2,:,:]
+            s1      = (self.grvelArr[0,:,:]).T
+            s2      = (self.grvelArr[1,:,:]).T
+            p       = (self.grvelArr[2,:,:]).T
             if polarization:
-                u1  = self.group_vecArr[0,0,:,:]
-                v1  = self.group_vecArr[0,1,:,:]
-                w1  = self.group_vecArr[0,2,:,:]
-                u2  = self.group_vecArr[1,0,:,:]
-                v2  = self.group_vecArr[1,1,:,:]
-                w2  = self.group_vecArr[1,2,:,:]
+                u1  = (self.group_vecArr[0,0,:,:]).T
+                v1  = (self.group_vecArr[0,1,:,:]).T
+                w1  = (self.group_vecArr[0,2,:,:]).T
+                u2  = (self.group_vecArr[1,0,:,:]).T
+                v2  = (self.group_vecArr[1,1,:,:]).T
+                w2  = (self.group_vecArr[1,2,:,:]).T
         if ds > 1:
-            xp      = xp[0:-1:ds, 0:-1:ds]
-            yp      = yp[0:-1:ds, 0:-1:ds]
-            zp      = zp[0:-1:ds, 0:-1:ds]
+            lonp    = lonp[0:-1:ds, 0:-1:ds]
+            latp    = latp[0:-1:ds, 0:-1:ds]
             u1      = u1[0:-1:ds, 0:-1:ds]
             v1      = v1[0:-1:ds, 0:-1:ds]
             w1      = w1[0:-1:ds, 0:-1:ds]
             u2      = u2[0:-1:ds, 0:-1:ds]
             v2      = v2[0:-1:ds, 0:-1:ds]
             w2      = w2[0:-1:ds, 0:-1:ds]
+
+        
         diffs = s2 - s1
         if ptype == 'relative' or ptype == 'rel':
             p   = (p - self.iso_P)/self.iso_P * 100.
@@ -1952,173 +1953,68 @@ class Christoffel(object):
             s1  = (s1 - self.iso_S)/self.iso_S* 100.
             s2  = (s2 - self.iso_S)/self.iso_S* 100.
             diffs = diffs/self.iso_S* 100.
+            
+        fig = plt.figure(figsize=(10,10))
         #############################
         # qP wave pole figure
         #############################
-        # fig = plt.figure()
-        # ax = fig.gca(projection='3d')
-        # # surf = ax.plot_surface(
-        # #     x, y, z, rstride=1, cstride=1, 
-        # #         facecolors=cm.gist_ncar(p),
-        # #         linewidth=0, antialiased=False, shade=True, vmin=p.min(), vmax=p.max())
-        # 
-        # surf = ax.plot_trisurf(
-        #     x, y, z, 
-        #         color=cm.gist_ncar(p),
-        #         )
-        # 
-        # # surf = ax.plot_trisurf(
-        # #     x, y, z, c=cm.jet(p))
-        # plt.show()
-        
-        # import plotly.offline as offline
-        # import plotly.graph_objs as go
-        # import plotly
-        # offline.init_notebook_mode(connected=True) # run at the start of every ipython notebook
-        # 
-        # surface = go.Surface(x=x, y=y, z=z)
-        # data = [surface]
-        # 
-        # layout = go.Layout(
-        #     title='Parametric Plot',
-        #     scene=dict(
-        #         xaxis=dict(
-        #             gridcolor='rgb(255, 255, 255)',
-        #             zerolinecolor='rgb(255, 255, 255)',
-        #             showbackground=True,
-        #             backgroundcolor='rgb(230, 230,230)'
-        #         ),
-        #         yaxis=dict(
-        #             gridcolor='rgb(255, 255, 255)',
-        #             zerolinecolor='rgb(255, 255, 255)',
-        #             showbackground=True,
-        #             backgroundcolor='rgb(230, 230,230)'
-        #         ),
-        #         zaxis=dict(
-        #             gridcolor='rgb(255, 255, 255)',
-        #             zerolinecolor='rgb(255, 255, 255)',
-        #             showbackground=True,
-        #             backgroundcolor='rgb(230, 230,230)'
-        #         )
-        #     )
-        # )
-        # 
-        # fig = go.Figure(data=data, layout=layout)
-        # offline.iplot(fig, filename='Parametric_plot')
-        
-        
-        # from mpl_toolkits.basemap import Basemap
-        # # import matplotlib.pyplot as plt
-        # # lon_0, lat_0 are the center point of the projection.
-        # # resolution = 'l' means use low resolution coastlines.
-        # # m = Basemap(projection='nsper',lon_0=0,lat_0=0,resolution='l')
-        # # m = Basemap(projection='hammer',lon_0=0,resolution='c')
-        # m = Basemap(projection='ortho',lon_0=-105,lat_0=0,resolution='l')
-        # # m = Basemap(projection='gall',llcrnrlat=-90,urcrnrlat=90,\
-        # #     llcrnrlon=-180,urcrnrlon=180,resolution='c')
-        # # m.drawcoastlines()
-        # # m.fillcontinents(color='coral',lake_color='aqua')
-        # # # draw parallels and meridians.
-        # # m.drawparallels(np.arange(-90.,120.,30.))
-        # # m.drawmeridians(np.arange(0.,420.,60.))
-        # # m.drawmapboundary(fill_color='aqua')
-        # # self.phiArr[self.phiArr>180.] = self.phiArr[self.phiArr>180.] - 360.
-        # lonArr = (self.phiArr.T)[::-1,:]; latArr = ((90.-self.thetaArr).T)[::-1,:]
-        lonArr = self.phiArr.T; latArr = (90.-self.thetaArr).T
-        # x, y = m(lonArr, latArr)
-        # m.pcolormesh(x, y, (p.T), cmap='gist_ncar_r', vmin=p.min(), vmax=p.max())
-        # # plt.title("Full Disk Orthographic Projection")
-        # plt.show()
-        # return lonArr, latArr, p
-
-
-        import cartopy.crs as ccrs
-        ax = plt.axes(projection=ccrs.Orthographic(central_longitude=0.0, central_latitude=-90.0))
-        
-    
-        # ax.contourf(lonArr, latArr, (p.T)[::-1,:],
-        #             transform=ccrs.PlateCarree(),
-        #             cmap='jet')
-        # ax.pcolormesh(lonArr, latArr, (p.T)[::-1,:],
-        #     transform=ccrs.PlateCarree(),
-        #     cmap='jet')
-        ax.pcolormesh(lonArr, latArr, p.T,
-            transform=ccrs.PlateCarree(),
-            cmap='jet')
-        # ax.coastlines()
-        ax.set_global()
-        plt.show()
-        # 
-        # 
-        # mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
-        # fig3d=mayavi.mlab.mesh(x, y, z, scalars=p)
-        # fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        # if ptype == 'absolute' or ptype == 'abs':
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
-        # else:
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        # cb.scalar_bar_representation.proportional_resize=True
-        # tl=mayavi.mlab.title('qP wave')
-        # # tl.x_position=0.47
-        # tl.property.font_size=10
-        # oaxes=mayavi.mlab.orientation_axes()
-        # #############################
-        # # qS1 wave (slow) pole figure
-        # #############################
-        # mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
-        # fig3d=mayavi.mlab.mesh(x, y, z, scalars=s1)
-        # fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        # if polarization:
-        #     mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
-        #     mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
-        # if stype == 'absolute' or stype == 'abs':
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
-        # else:
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        # cb.scalar_bar_representation.proportional_resize=True
-        # tl=mayavi.mlab.title('Slow S wave (qS1)',)
-        # # tl.x_position=0.47
-        # tl.property.font_size=10
-        # # mayavi.mlab.text3d(0, 0, 1, 'label')
-        # oaxes=mayavi.mlab.orientation_axes()
-        # #############################
-        # # qS2 wave (fast) pole figure
-        # #############################
-        # mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
-        # fig3d=mayavi.mlab.mesh(x, y, z, scalars=s2)
-        # fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        # if polarization:
-        #     mayavi.mlab.quiver3d(xp, yp, zp, u2, v2, w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
-        #     mayavi.mlab.quiver3d(xp, yp, zp, -u2, -v2, -w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
-        # if stype == 'absolute' or stype == 'abs':
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
-        # else:
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        # cb.scalar_bar_representation.proportional_resize=True
-        # tl=mayavi.mlab.title('Fast S wave (qS2)',)
-        # # tl.x_position=0.47
-        # tl.property.font_size=10
-        # oaxes=mayavi.mlab.orientation_axes()
-        # #############################
-        # # S wave difference wave pole figure
-        # #############################
-        # mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
-        # fig3d=mayavi.mlab.mesh(x, y, z, scalars=diffs)
-        # fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        # if polarization:
-        #     mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
-        #     mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
-        #     mayavi.mlab.quiver3d(xp, yp, zp, u2, v2, w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
-        #     mayavi.mlab.quiver3d(xp, yp, zp, -u2, -v2, -w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
-        # if stype == 'absolute' or stype == 'abs':
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
-        # else:
-        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        # cb.scalar_bar_representation.proportional_resize=True
-        # tl=mayavi.mlab.title('S wave difference',)
-        # # tl.x_position=0.47
-        # tl.property.font_size=10
-        # oaxes=mayavi.mlab.orientation_axes()
+        plt.subplot(221, projection=ccrs.Orthographic(central_longitude=lon0, central_latitude=lat0))
+        if not contour:
+            im=plt.pcolormesh(lonArr, latArr, p, transform=ccrs.PlateCarree(), cmap=cmap)
+        else:
+            levels=np.linspace(p.min(), p.max(), 20)
+            im=plt.contourf(lonArr, latArr, p,  transform=ccrs.PlateCarree(), cmap=cmap, levels=levels)
+        cb = plt.colorbar(im)
+        if ptype == 'absolute' or ptype == 'abs':
+            cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
+        else:
+            cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
+        plt.title('qP wave', fontsize=20)
+        #############################
+        # qS1 wave pole figure
+        #############################
+        plt.subplot(222, projection=ccrs.Orthographic(central_longitude=lon0, central_latitude=lat0))
+        if not contour:
+            im=plt.pcolormesh(lonArr, latArr, s1, transform=ccrs.PlateCarree(), cmap=cmap)
+        else:
+            levels=np.linspace(p.min(), p.max(), 20)
+            im=plt.contourf(lonArr, latArr, s1,  transform=ccrs.PlateCarree(), cmap=cmap, levels=levels)
+        cb = plt.colorbar(im)
+        if stype == 'absolute' or stype == 'abs':
+            cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
+        else:
+            cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
+        plt.title('qS1(slow) wave', fontsize=20)
+        #############################
+        # qS2 wave pole figure
+        #############################
+        plt.subplot(223, projection=ccrs.Orthographic(central_longitude=lon0, central_latitude=lat0))
+        if not contour:
+            im=plt.pcolormesh(lonArr, latArr, s2, transform=ccrs.PlateCarree(), cmap=cmap)
+        else:
+            levels=np.linspace(p.min(), p.max(), 20)
+            im=plt.contourf(lonArr, latArr, s2,  transform=ccrs.PlateCarree(), cmap=cmap, levels=levels)
+        cb = plt.colorbar(im)
+        if stype == 'absolute' or stype == 'abs':
+            cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
+        else:
+            cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
+        plt.title('qS2(fast) wave', fontsize=20)
+        #############################
+        # S wave difference pole figure
+        #############################
+        plt.subplot(224, projection=ccrs.Orthographic(central_longitude=lon0, central_latitude=lat0))
+        if not contour:
+            im=plt.pcolormesh(lonArr, latArr, diffs, transform=ccrs.PlateCarree(), cmap=cmap)
+        else:
+            levels=np.linspace(p.min(), p.max(), 20)
+            im=plt.contourf(lonArr, latArr, diffs,  transform=ccrs.PlateCarree(), cmap=cmap, levels=levels)
+        cb = plt.colorbar(im)
+        if stype == 'absolute' or stype == 'abs':
+            cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
+        else:
+            cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
+        plt.title('S wave difference', fontsize=20)
         return
         
 
