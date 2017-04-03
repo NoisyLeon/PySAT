@@ -1762,8 +1762,8 @@ class Christoffel(object):
         import mayavi.mlab 
         # get data for plot
         # position data
-        theta       = self.thetaarr/180.*np.pi
-        phi         = self.phiarr/180.*np.pi
+        theta       = self.thetaArr/180.*np.pi
+        phi         = self.phiArr/180.*np.pi
         sin_theta   = np.sin(theta)
         cos_theta   = np.cos(theta)
         sin_phi     = np.sin(phi)
@@ -1775,27 +1775,27 @@ class Christoffel(object):
         yp          = 1.05*sin_phi * sin_theta
         zp          = 1.05*cos_theta
         if datatype == 'phase':
-            s1      = self.phvelarr[0,:,:]
-            s2      = self.phvelarr[1,:,:]
-            p       = self.phvelarr[2,:,:]
+            s1      = self.phvelArr[0,:,:]
+            s2      = self.phvelArr[1,:,:]
+            p       = self.phvelArr[2,:,:]
             if polarization:
-                u1  = self.eigvecarr[0,0,:,:]
-                v1  = self.eigvecarr[0,1,:,:]
-                w1  = self.eigvecarr[0,2,:,:]
-                u2  = self.eigvecarr[1,0,:,:]
-                v2  = self.eigvecarr[1,1,:,:]
-                w2  = self.eigvecarr[1,2,:,:]
+                u1  = self.eigvecArr[0,0,:,:]
+                v1  = self.eigvecArr[0,1,:,:]
+                w1  = self.eigvecArr[0,2,:,:]
+                u2  = self.eigvecArr[1,0,:,:]
+                v2  = self.eigvecArr[1,1,:,:]
+                w2  = self.eigvecArr[1,2,:,:]
         elif datatype == 'group':
-            s1      = self.grvelarr[0,:,:]
-            s2      = self.grvelarr[1,:,:]
-            p       = self.grvelarr[2,:,:]
+            s1      = self.grvelArr[0,:,:]
+            s2      = self.grvelArr[1,:,:]
+            p       = self.grvelArr[2,:,:]
             if polarization:
-                u1  = self.group_vecarr[0,0,:,:]
-                v1  = self.group_vecarr[0,1,:,:]
-                w1  = self.group_vecarr[0,2,:,:]
-                u2  = self.group_vecarr[1,0,:,:]
-                v2  = self.group_vecarr[1,1,:,:]
-                w2  = self.group_vecarr[1,2,:,:]
+                u1  = self.group_vecArr[0,0,:,:]
+                v1  = self.group_vecArr[0,1,:,:]
+                w1  = self.group_vecArr[0,2,:,:]
+                u2  = self.group_vecArr[1,0,:,:]
+                v2  = self.group_vecArr[1,1,:,:]
+                w2  = self.group_vecArr[1,2,:,:]
         if ds > 1:
             xp      = xp[0:-1:ds, 0:-1:ds]
             yp      = yp[0:-1:ds, 0:-1:ds]
@@ -1808,22 +1808,22 @@ class Christoffel(object):
             w2      = w2[0:-1:ds, 0:-1:ds]
         diffs = s2 - s1
         if ptype == 'relative' or ptype == 'rel':
-            p   = (p - self.iso_p)/self.iso_p * 100.
+            p   = (p - self.iso_P)/self.iso_P * 100.
         if stype == 'relative'or stype == 'rel':
-            s1  = (s1 - self.iso_s)/self.iso_s* 100.
-            s2  = (s2 - self.iso_s)/self.iso_s* 100.
-            diffs = diffs/self.iso_s* 100.
+            s1  = (s1 - self.iso_S)/self.iso_S* 100.
+            s2  = (s2 - self.iso_S)/self.iso_S* 100.
+            diffs = diffs/self.iso_S* 100.
         #############################
         # qp wave pole figure
         #############################
-        mayavi.mlab.figure(figure=none, bgcolor=none, fgcolor=none, engine=none, size=size)
+        mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
         fig3d=mayavi.mlab.mesh(x, y, z, scalars=p)
-        fig3d.module_manager.scalar_lut_manager.reverse_lut = true
+        fig3d.module_manager.scalar_lut_manager.reverse_lut = True
         if ptype == 'absolute' or ptype == 'abs':
             cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        cb.scalar_bar_representation.proportional_resize=true
+        cb.scalar_bar_representation.proportional_resize=True
         tl=mayavi.mlab.title('qp wave')
         # tl.x_position=0.47
         tl.property.font_size=10
@@ -1831,9 +1831,9 @@ class Christoffel(object):
         #############################
         # qs1 wave (slow) pole figure
         #############################
-        mayavi.mlab.figure(figure=none, bgcolor=none, fgcolor=none, engine=none, size=size)
+        mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
         fig3d=mayavi.mlab.mesh(x, y, z, scalars=s1)
-        fig3d.module_manager.scalar_lut_manager.reverse_lut = true
+        fig3d.module_manager.scalar_lut_manager.reverse_lut = True
         if polarization:
             mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
             mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
@@ -1841,7 +1841,7 @@ class Christoffel(object):
             cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        cb.scalar_bar_representation.proportional_resize=true
+        cb.scalar_bar_representation.proportional_resize=True
         tl=mayavi.mlab.title('slow s wave (qs1)',)
         # tl.x_position=0.47
         tl.property.font_size=10
@@ -1850,9 +1850,9 @@ class Christoffel(object):
         #############################
         # qs2 wave (fast) pole figure
         #############################
-        mayavi.mlab.figure(figure=none, bgcolor=none, fgcolor=none, engine=none, size=size)
+        mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
         fig3d=mayavi.mlab.mesh(x, y, z, scalars=s2)
-        fig3d.module_manager.scalar_lut_manager.reverse_lut = true
+        fig3d.module_manager.scalar_lut_manager.reverse_lut = True
         if polarization:
             mayavi.mlab.quiver3d(xp, yp, zp, u2, v2, w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
             mayavi.mlab.quiver3d(xp, yp, zp, -u2, -v2, -w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
@@ -1860,7 +1860,7 @@ class Christoffel(object):
             cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        cb.scalar_bar_representation.proportional_resize=true
+        cb.scalar_bar_representation.proportional_resize=True
         tl=mayavi.mlab.title('fast s wave (qs2)',)
         # tl.x_position=0.47
         tl.property.font_size=10
@@ -1868,9 +1868,9 @@ class Christoffel(object):
         #############################
         # s wave difference wave pole figure
         #############################
-        mayavi.mlab.figure(figure=none, bgcolor=none, fgcolor=none, engine=none, size=size)
+        mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
         fig3d=mayavi.mlab.mesh(x, y, z, scalars=diffs)
-        fig3d.module_manager.scalar_lut_manager.reverse_lut = true
+        fig3d.module_manager.scalar_lut_manager.reverse_lut = True
         if polarization:
             mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
             mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
@@ -1880,7 +1880,7 @@ class Christoffel(object):
             cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        cb.scalar_bar_representation.proportional_resize=true
+        cb.scalar_bar_representation.proportional_resize=True
         tl=mayavi.mlab.title('s wave difference',)
         # tl.x_position=0.47
         tl.property.font_size=10
