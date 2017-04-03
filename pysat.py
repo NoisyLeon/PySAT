@@ -37,10 +37,12 @@ try:
     from opt_einsum import contract
     use_opt_einsum=True
 except: use_opt_einsum=False
+import mayavi.mlab
 import cartopy.crs as ccrs
 from matplotlib import cm
 import matplotlib.pyplot as plt
 from numba import jit, float32, int32
+
 ########################################################################################################
 # axis sequences for Euler angles
 _NEXT_AXIS = [1, 2, 0, 1]
@@ -386,12 +388,34 @@ def cofactor(m):
         raise ValueError('Inconsistent cofactor matrix!')
     return cof
 
-def localcartesian2spherical(x, y, z, theta, phi, r=100):
-    theta   = theta/180.*np.pi
-    phi     = phi/180.*np.pi
-    m=np.array([   [np.sin(theta)*np.cos(phi), r*np.cos(theta)*np.sin(phi), -r*np.sin(theta)*np.sin(phi)],
-                    [1.0, 1.0, 1.0],
-                    [1.0, 1.0, 1.0]])
+def localcartesian2spherical(xArr, yArr, zArr, thetaArr, phiArr, r=100):
+    Ntheta, Nphi = thetaArr.shape
+    uArr=np.zeros(thetaArr.shape)
+    vArr=np.zeros(thetaArr.shape)
+    rArr=np.zeros(thetaArr.shape)
+    for itheta in xrange(Ntheta):
+        for iphi in xrange(Nphi):
+            theta   = thetaArr[itheta, iphi]/180.*np.pi
+            phi     = phiArr[itheta, iphi]/180.*np.pi
+            x       = xArr[itheta, iphi]
+            y       = yArr[itheta, iphi]
+            z       = zArr[itheta, iphi]
+            if np.sin(theta) ==0: continue
+            m=np.array([   [np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(phi)],
+                            [-np.sin(phi)/r/np.sin(theta), np.cos(phi)/r/np.sin(theta), 0],
+                            [np.cos(phi)*np.cos(theta)/r, np.sin(phi)*np.cos(theta)/r, -np.sin(theta)/r]])
+            out = np.dot(m, np.array([x,y,z]))
+            rArr[itheta, iphi]=out[0]
+            dphi = out[1]
+            dtheta = out[2]
+            l=np.sqrt(dphi**2+dtheta**2)
+            
+            uArr[itheta, iphi]=dphi/l
+            vArr[itheta, iphi]=dtheta/l
+    return rArr, uArr, vArr
+            
+        
+    
     
 
 class elasticTensor(object):
@@ -1740,26 +1764,19 @@ class Christoffel(object):
     
     def plot3d(self, size=(1000, 700), datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
         """
-        plot 3d pole figure using mayavi 
+        Plot 3D pole figure using Mayavi 
         ============================================================================================
-        input parameters:
-        dtheta  - interval of polar angle
-        dphi    - interval of azimuth
-        group   - compute group velocities or nor
-        outfname- output file name (asdf format)
-        --------------------------------------------------------------------------------------------
-        output:
-        self.phvelarr       - phace velocity array (3*nphi*ntheta)
-        self.eigvecarr      - eigenvector array (polarization of three phase modes, 3*3*nphi*ntheta)
-        self.grvelarr       - group velocity array (3*nphi*ntheta)
-        self.group_vecarr   - polarization of three group modes (3*3*nphi*ntheta)
-        self.group_pvarr    - propagation vector of three group modes (3*3*nphi*ntheta)
-        self.group_thetaarr - group velocity polar angle array (3*nphi*ntheta)
-        self.group_phiarr   - group velocity azimuth array (3*nphi*ntheta)
-        self.pf_anglearr    - power flow angle array (3*nphi*ntheta)
+        Input Parameters:
+        size        - size of the Mayavi window
+        datatype    - phase or group
+        ptype       -   1. 'absolute' or 'abs': plotting P wave in km/s for absolute velocity
+                        2. 'relative' or 'rel': plotting P wave in % for anisotropy percentage
+        stype       -   1. 'absolute' or 'abs': plotting S wave in km/s for absolute velocity
+                        2. 'relative' or 'rel': plotting S wave in % for anisotropy percentage
+        polarization- plot polarization of S wave or not
+        ds          - downsampling spacing for polarization vector
         ============================================================================================
         """
-        import mayavi.mlab 
         # get data for plot
         # position data
         theta       = self.thetaArr/180.*np.pi
@@ -1824,7 +1841,7 @@ class Christoffel(object):
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
         cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('qp wave')
+        tl=mayavi.mlab.title('qP wave')
         # tl.x_position=0.47
         tl.property.font_size=10
         oaxes=mayavi.mlab.orientation_axes()
@@ -1842,7 +1859,7 @@ class Christoffel(object):
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
         cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('slow s wave (qs1)',)
+        tl=mayavi.mlab.title('Slow S wave (qS1)',)
         # tl.x_position=0.47
         tl.property.font_size=10
         # mayavi.mlab.text3d(0, 0, 1, 'label')
@@ -1861,7 +1878,7 @@ class Christoffel(object):
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
         cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('fast s wave (qs2)',)
+        tl=mayavi.mlab.title('Fast S wave (qS2)',)
         # tl.x_position=0.47
         tl.property.font_size=10
         oaxes=mayavi.mlab.orientation_axes()
@@ -1881,36 +1898,34 @@ class Christoffel(object):
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
         cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('s wave difference',)
+        tl=mayavi.mlab.title('S wave difference',)
         # tl.x_position=0.47
         tl.property.font_size=10
         oaxes=mayavi.mlab.orientation_axes()
         return
     
-    def plot2d(self, size=(1000, 700), cmap='jet_r', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
+    def plot2d(self, size=(10,10), cmap='jet_r', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
         """
-        Plot 3D pole figure using mayavi 
+        Plot 2D pole figure using cartopy 
         ============================================================================================
         Input Parameters:
-        dtheta  - interval of polar angle
-        dphi    - interval of azimuth
-        group   - compute group velocities or nor
-        outfname- output file name (ASDF format)
-        --------------------------------------------------------------------------------------------
-        Output:
-        self.phvelArr       - phace velocity array (3*Nphi*Ntheta)
-        self.eigvecArr      - eigenvector array (polarization of three phase modes, 3*3*Nphi*Ntheta)
-        self.grvelArr       - group velocity array (3*Nphi*Ntheta)
-        self.group_vecArr   - polarization of three group modes (3*3*Nphi*Ntheta)
-        self.group_pvArr    - propagation vector of three group modes (3*3*Nphi*Ntheta)
-        self.group_thetaArr - group velocity polar angle array (3*Nphi*Ntheta)
-        self.group_phiArr   - group velocity azimuth array (3*Nphi*Ntheta)
-        self.pf_angleArr    - power flow angle array (3*Nphi*Ntheta)
+        size        - size of the figure
+        cmap        - colormap type
+        contour     - plot contour or not
+        theta0, phi0- center polar angle and azimuth for view
+        datatype    - phase or group
+        ptype       -   1. 'absolute' or 'abs': plotting P wave in km/s for absolute velocity
+                        2. 'relative' or 'rel': plotting P wave in % for anisotropy percentage
+        stype       -   1. 'absolute' or 'abs': plotting S wave in km/s for absolute velocity
+                        2. 'relative' or 'rel': plotting S wave in % for anisotropy percentage
+        polarization- plot polarization of S wave or not
+        ds          - downsampling spacing for polarization vector
         ============================================================================================
         """
         # Get data for plot
         # Position data
         lonArr = self.phiArr.T; latArr = (90.-self.thetaArr).T
+        phip   = self.phiArr.T; thetap = self.thetaArr.T
         lonp = lonArr.copy(); latp=latArr.copy()
         lon0=phi0; lat0=90.-theta0
         if datatype == 'phase':
@@ -1938,14 +1953,14 @@ class Christoffel(object):
         if ds > 1:
             lonp    = lonp[0:-1:ds, 0:-1:ds]
             latp    = latp[0:-1:ds, 0:-1:ds]
+            phip    = phip[0:-1:ds, 0:-1:ds]
+            thetap  = thetap[0:-1:ds, 0:-1:ds]
             u1      = u1[0:-1:ds, 0:-1:ds]
             v1      = v1[0:-1:ds, 0:-1:ds]
             w1      = w1[0:-1:ds, 0:-1:ds]
             u2      = u2[0:-1:ds, 0:-1:ds]
             v2      = v2[0:-1:ds, 0:-1:ds]
             w2      = w2[0:-1:ds, 0:-1:ds]
-
-        
         diffs = s2 - s1
         if ptype == 'relative' or ptype == 'rel':
             p   = (p - self.iso_P)/self.iso_P * 100.
@@ -1953,8 +1968,10 @@ class Christoffel(object):
             s1  = (s1 - self.iso_S)/self.iso_S* 100.
             s2  = (s2 - self.iso_S)/self.iso_S* 100.
             diffs = diffs/self.iso_S* 100.
-            
-        fig = plt.figure(figsize=(10,10))
+        rr1, uu1, vv1 =  localcartesian2spherical(u1, v1, w1, thetap, phip, r=100)
+        rr2, uu2, vv2 =  localcartesian2spherical(u2, v2, w2, thetap, phip, r=100)
+        
+        fig = plt.figure(figsize=size)
         #############################
         # qP wave pole figure
         #############################
@@ -1964,6 +1981,7 @@ class Christoffel(object):
         else:
             levels=np.linspace(p.min(), p.max(), 20)
             im=plt.contourf(lonArr, latArr, p,  transform=ccrs.PlateCarree(), cmap=cmap, levels=levels)
+        # return lonp, latp, uu1, vv1, rr1
         cb = plt.colorbar(im)
         if ptype == 'absolute' or ptype == 'abs':
             cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
@@ -1984,6 +2002,9 @@ class Christoffel(object):
             cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
         else:
             cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
+        if polarization:
+            plt.quiver(lonp, latp, uu1, vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
+            plt.quiver(lonp, latp, -uu1, -vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
         plt.title('qS1(slow) wave', fontsize=20)
         #############################
         # qS2 wave pole figure
@@ -1999,6 +2020,9 @@ class Christoffel(object):
             cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
         else:
             cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
+        if polarization:
+            plt.quiver(lonp, latp, uu2, vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
+            plt.quiver(lonp, latp, -uu2, -vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
         plt.title('qS2(fast) wave', fontsize=20)
         #############################
         # S wave difference pole figure
@@ -2014,7 +2038,14 @@ class Christoffel(object):
             cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
         else:
             cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
+        if polarization:
+            plt.quiver(lonp, latp, uu1, vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
+            plt.quiver(lonp, latp, -uu1, -vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
+            plt.quiver(lonp, latp, uu2, vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
+            plt.quiver(lonp, latp, -uu2, -vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
         plt.title('S wave difference', fontsize=20)
+        plt.suptitle(self.etensor.info, fontsize=15)
+        plt.show()
         return
         
 
