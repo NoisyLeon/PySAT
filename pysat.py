@@ -419,9 +419,6 @@ def localcartesian2spherical(xArr, yArr, zArr, thetaArr, phiArr, r=100):
             vArr[itheta, iphi]=dtheta/l
     return rArr, uArr, vArr
             
-        
-    
-    
 
 class elasticTensor(object):
     """
@@ -612,7 +609,35 @@ class elasticTensor(object):
         if resetCijkl: self.Voigt2Cijkl()
         return
     
-    def set_radial(self, vp, vs, rho, xi, phi, eta, resetCijkl=True):
+    def set_radial(self, vsv=3.57, vsh=3.74, vpv=6.14, vph=6.52, eta=0.87, rho=2790, resetCijkl=True):
+        """
+        Set Love parameters for a VTI media, given radial anisotropic S/P wave velocity
+        Default values are the values from Point A, group 1 in Table 1. of Xie et al., 2015
+        ====================================================================================
+        Input Parameters:
+        vsv         - SV wave velocity (km/s)
+        vsh         - SH wave velocity (km/s)
+        vpv         - PV wave velocity (km/s)
+        vph         - PH wave velocity (km/s)
+        eta         - F/(A-2*L)
+        rho         - density (kg/m^3)
+        resetCijkl  - reset 4th order tensor or not
+        ====================================================================================
+        Reference:
+        Xie, J., Ritzwoller, M.H., Brownlee, S.J. and Hacker, B.R., 2015.
+            Inferring the oriented elastic tensor from surface wave observations: preliminary application across the western United States.
+            Geophysical Journal International, 201(2), pp.996-1021.
+        """
+        self.rho=rho
+        A   = rho*(vph**2)/1000.
+        C   = rho*(vpv**2)/1000.
+        N   = rho*(vsh**2)/1000.
+        L   = rho*(vsv**2)/1000.
+        F   = eta*(A-2*L)
+        self.set_love(A=A, C=C, L=L, N=N, F=F, resetCijkl=resetCijkl)
+        return
+    
+    def set_radial2(self, vp, vs, rho, xi, phi, eta, resetCijkl=True):
         """
         Output the elastic tensor given a set of radial anisotropy parameters
         as used typically in global seismology.  Average velocities are given by:
@@ -984,8 +1009,8 @@ class elasticTensor(object):
         return
     
     def rot_dip_strike2(self, dip, strike, verbose=True):
-        self.rot_dip_strike(dip=dip, strike=strike)
         et_temp = self.copy()
+        self.rot_dip_strike(dip=dip, strike=strike)
         et_temp.rot_dip_strike(dip=dip, strike=strike, method='euler')
         if not np.allclose(self.Cvoigt, et_temp.Cvoigt):
             raise ValueError('Inconsistent dip/strike Rotation!')
@@ -1909,7 +1934,7 @@ class Christoffel(object):
         oaxes=mayavi.mlab.orientation_axes()
         return
     
-    def plot2d(self, size=(10,10), cmap='jet_r', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
+    def plot2d(self, size=(10,10), cmap='jet_r', hsph='upper', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
         """
         Plot 2D pole figure using cartopy 
         ============================================================================================
@@ -1960,12 +1985,13 @@ class Christoffel(object):
             latp    = latp[0:-1:ds, 0:-1:ds]
             phip    = phip[0:-1:ds, 0:-1:ds]
             thetap  = thetap[0:-1:ds, 0:-1:ds]
-            u1      = u1[0:-1:ds, 0:-1:ds]
-            v1      = v1[0:-1:ds, 0:-1:ds]
-            w1      = w1[0:-1:ds, 0:-1:ds]
-            u2      = u2[0:-1:ds, 0:-1:ds]
-            v2      = v2[0:-1:ds, 0:-1:ds]
-            w2      = w2[0:-1:ds, 0:-1:ds]
+            if polarization:
+                u1      = u1[0:-1:ds, 0:-1:ds]
+                v1      = v1[0:-1:ds, 0:-1:ds]
+                w1      = w1[0:-1:ds, 0:-1:ds]
+                u2      = u2[0:-1:ds, 0:-1:ds]
+                v2      = v2[0:-1:ds, 0:-1:ds]
+                w2      = w2[0:-1:ds, 0:-1:ds]
         diffs = s2 - s1
         if ptype == 'relative' or ptype == 'rel':
             p   = (p - self.iso_P)/self.iso_P * 100.
@@ -1973,8 +1999,18 @@ class Christoffel(object):
             s1  = (s1 - self.iso_S)/self.iso_S* 100.
             s2  = (s2 - self.iso_S)/self.iso_S* 100.
             diffs = diffs/self.iso_S* 100.
-        rr1, uu1, vv1 =  localcartesian2spherical(u1, v1, w1, thetap, phip, r=100)
-        rr2, uu2, vv2 =  localcartesian2spherical(u2, v2, w2, thetap, phip, r=100)
+        if polarization:
+            rr1, uu1, vv1 =  localcartesian2spherical(u1, v1, w1, thetap, phip, r=100)
+            rr2, uu2, vv2 =  localcartesian2spherical(u2, v2, w2, thetap, phip, r=100)
+        if hsph == 'lower':
+            p   = p[::-1, :]
+            s1  = s1[::-1, :]
+            s2  = s2[::-1,:]
+            if polarization:
+                uu1 = uu1[::-1, :]
+                uu2 = uu2[::-1,:]
+                vv1 = vv1[::-1, :]
+                vv2 = vv2[::-1, :]
         
         fig = plt.figure(figsize=size)
         #############################
