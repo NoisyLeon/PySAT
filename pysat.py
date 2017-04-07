@@ -695,23 +695,20 @@ class elasticTensor(object):
         C[3,3]  = vs*vs  # 9b
         C[5,5]  = C[3,3]*(2.0*gamma +1.0) # 8b
         C[0,0]  = C[2,2]*(2.0*eps +1.0) # 8a
-           
         btm     = 2.0*C[3,3]
         term    = C[2,2] - C[3,3]
         ctm     = C[3,3]*C[3,3] - (2.0*delta*C[2,2]*term + term*term) 
         dsrmt   = (btm*btm - 4.0*ctm) 
         if dsrmt < 0: raise ValueError('S-velocity too high or delta too negative for Thomsen routine.')
-           
-        C[0,2] = -btm/2.0 + np.sqrt(dsrmt)/2.0 
+        C[0,2] = -btm/2.0 + np.sqrt(dsrmt)/2.0 # Eq 17
         C[0,1] = C[0,0] - 2.0*C[5,5] 
         C[1,2] = C[0,2] 
         C[4,4] = C[3,3] 
         C[1,1] = C[0,0] 
-        
         # make symmetrical
         for i in xrange(6):
-             for j in xrange(6):
-                 C[j,i] = C[i,j]
+            for j in xrange(6):
+                C[j,i] = C[i,j]
         #  convert to GPa
         C           = C*rho/1e9
         # output data
@@ -720,6 +717,7 @@ class elasticTensor(object):
         self.info   = 'Thomsen VTI'
         if resetCijkl: self.Voigt2Cijkl()
         return
+    
          
     def elastic_DB(self, mtype, resetCijkl=True):
         """
@@ -894,6 +892,36 @@ class elasticTensor(object):
                                         [    0.,     0.,   0.0,     0., 58.27, -18.23],
                                         [    0.,     0.,   0.0,     0.,-18.23,  40.28]])
             self.rho=2649.7
+        elif mtype == 'periclase':
+            self.info = 'Karki, B., Wentzcovitch, R., Gironcoli, S.D. & Baroni, S., 2000. Ab initiolattice dynamics of MgSiO3 '+\
+                        'perovskite at high pressure, Phys. Rev. B,62(22), doi:10.1103/PhysRevB.62.14750'
+            self.Cvoigt[:] =  np.array([[ 1154.,   265.5, 265.5, 0.,    0., 0.],
+                                        [ 265.5,  1154., 265.5,  0.,    0., 0.],
+                                        [ 265.5,  265.5, 1154.,  0.,    0., 0.],
+                                        [   0.0,    0.0,   0.0, 198.0,  0., 0.],
+                                        [    0.,     0.,   0.0,     0., 198.0, 0.],
+                                        [    0.,     0.,   0.0,     0.,     0.,   198.0]])
+            self.rho=5070.
+        elif mtype == 'perovskite':
+            self.info = 'Wentzcovitch, R., 2010. Thermodynamic properties and phase relations in mantle minerals investigated by'+\
+                        'first principles quasiharmonic theory, Rev. Miner. Geochem., 71(1), 59?98.'
+            self.Cvoigt[:] =  np.array([[ 860.,   535.5, 437.0, 0.,    0., 0.],
+                                        [ 535.5,  1067.5,467.5,  0.,    0., 0.],
+                                        [ 437.0,  467.5, 1053.,  0.,    0., 0.],
+                                        [   0.0,    0.0,   0.0, 294.,  0., 0.],
+                                        [    0.,     0.,   0.0,     0., 249.5, 0.],
+                                        [    0.,     0.,   0.0,     0.,     0.,   284.5]])
+            self.rho=5250.
+        elif mtype == 'post-perovskite':
+            self.info = 'Stackhouse, S. & Brodholt, J., 2007. The high-temperature elasticity of MgSiO3 post-perovskite, Geophys.'+\
+                        'Monogr. Ser., 174, 99?114.'
+            self.Cvoigt[:] =  np.array([[ 1220.,   474., 359., 0.,    0., 0.],
+                                        [ 474.,  899., 493.,  0.,    0., 0.],
+                                        [ 359.,  493., 1176.,  0.,    0., 0.],
+                                        [   0.0,    0.0,   0.0, 273.0,  0., 0.],
+                                        [    0.,     0.,   0.0,     0., 245.0, 0.],
+                                        [    0.,     0.,   0.0,     0.,     0.,   376.0]])
+            self.rho=5350.
         else: raise NameError('Unexpected name of mineral !')
         if resetCijkl: self.Voigt2Cijkl()
         return
@@ -1021,6 +1049,35 @@ class elasticTensor(object):
     ##########################################################################
     # Advanced methods
     ##########################################################################
+    
+    def decompose_MN(self):
+        """
+        Decompose Voigt matrix into
+        (1) ETI: an effective trasversely isotropic(azimuthally independent) part
+        (2) AA: an azimuthally dependent part
+        ============================================================================
+        Output:
+        etETI   - elastic tensor object for ETI part
+        etAA    - elastic tensor object for AA part
+        ============================================================================
+        Reference:
+        Montagner, J.P. and Nataf, H.C., 1986. A simple method for inverting the azimuthal anisotropy of surface waves.
+            Journal of Geophysical Research: Solid Earth, 91(B1), pp.511-520.
+        """
+        etETI   = self.copy()
+        etAA    = self.copy()
+        Cvoigt  = self.Cvoigt.copy()
+        A       = 3.*(Cvoigt[0,0] + Cvoigt[1,1])/8. + Cvoigt[0,1]/4. + Cvoigt[5,5]/2.
+        C       = Cvoigt[2,2]
+        N       = (Cvoigt[0,0] + Cvoigt[1,1])/8. - Cvoigt[0,1]/4. + Cvoigt[5,5]/2.
+        L       = (Cvoigt[3,3] + Cvoigt[4,4]) / 2.
+        F       = (Cvoigt[0,2] + Cvoigt[1,2])/2
+        etETI.set_love(A = A, C = C, L=L, N=N, F=F, resetCijkl=True, mtype='VTI')
+        self.etETI  = etETI
+        etAA.Cvoigt = self.Cvoigt - etETI.Cvoigt
+        etAA.Voigt2Cijkl()
+        self.etAA   = etAA
+        return 
     
     def set_error(self, eCvoigt=np.zeros([6,6])): self.eCvoigt= eCvoigt
         
@@ -1267,6 +1324,35 @@ class elasticTensor(object):
                         hessianmat[i][j][k][l] = self.Cijkl[k][i][j][l] + self.Cijkl[k][j][i][l]
         return hessianmat
         
+    def get_thomsen(self):
+        """
+        Get the Thomsen parameters.
+        """
+        C       = self.Cvoigt
+        gamma   = (C[5,5] - C[3,3])/2./C[3,3]
+        eps     = (C[0,0] - C[2,2])/2./C[2,2]
+        delta   = ((C[0,2]+C[3,3])**2 - (C[2,2]-C[3,3])**2)/2./C[2,2]/(C[2,2]-C[3,3])
+        return gamma, eps, delta
+    
+    def get_aziA(self, verbose=True):
+        """
+        Compute azimuthal anisotropy amplitude and corresponding fast axis angle
+        """
+        C       = self.Cvoigt
+        try:
+            etETI   = self.etETI
+            L       = etETI.Cvoigt[4,4]
+            if verbose: print   'Computing azimuthal anaisotropy WITH decomposed tensor!'
+        except:
+            L       = self.Cvoigt[4,4]
+            if verbose: print   'Computing azimuthal anaisotropy WITHOUT decomposed tensor!'
+        # # # aziA    = np.sqrt((C[4,4] - C[3,3])**2 +C[3,4]**2) / 2./L
+        # # # phifa   = 1./2.*np.arctan(C[3,4]/ (C[4,4] - C[3,3])) / np.pi *180.
+        aziA    = np.sqrt((C[4,4] - C[3,3])**2/4. +C[3,4]**2) / 2./L
+        phifa   = 1./2.*np.arctan(2.*C[3,4]/ (C[4,4] - C[3,3])) / np.pi *180.
+        return aziA, phifa
+    
+    
 class Christoffel(object):
     """
     An object for solving (Kelvin-)Christoffel equation
@@ -1822,27 +1908,27 @@ class Christoffel(object):
         yp          = 1.05*sin_phi * sin_theta
         zp          = 1.05*cos_theta
         if datatype == 'phase':
-            s1      = self.phvelArr[0,:,:]
-            s2      = self.phvelArr[1,:,:]
+            s2      = self.phvelArr[0,:,:]
+            s1      = self.phvelArr[1,:,:]
             p       = self.phvelArr[2,:,:]
             if polarization:
-                u1  = self.eigvecArr[0,0,:,:]
-                v1  = self.eigvecArr[0,1,:,:]
-                w1  = self.eigvecArr[0,2,:,:]
-                u2  = self.eigvecArr[1,0,:,:]
-                v2  = self.eigvecArr[1,1,:,:]
-                w2  = self.eigvecArr[1,2,:,:]
+                u2  = self.eigvecArr[0,0,:,:]
+                v2  = self.eigvecArr[0,1,:,:]
+                w2  = self.eigvecArr[0,2,:,:]
+                u1  = self.eigvecArr[1,0,:,:]
+                v1  = self.eigvecArr[1,1,:,:]
+                w1  = self.eigvecArr[1,2,:,:]
         elif datatype == 'group':
-            s1      = self.grvelArr[0,:,:]
-            s2      = self.grvelArr[1,:,:]
+            s2      = self.grvelArr[0,:,:]
+            s1      = self.grvelArr[1,:,:]
             p       = self.grvelArr[2,:,:]
             if polarization:
-                u1  = self.group_vecArr[0,0,:,:]
-                v1  = self.group_vecArr[0,1,:,:]
-                w1  = self.group_vecArr[0,2,:,:]
-                u2  = self.group_vecArr[1,0,:,:]
-                v2  = self.group_vecArr[1,1,:,:]
-                w2  = self.group_vecArr[1,2,:,:]
+                u2  = self.group_vecArr[0,0,:,:]
+                v2  = self.group_vecArr[0,1,:,:]
+                w2  = self.group_vecArr[0,2,:,:]
+                u1  = self.group_vecArr[1,0,:,:]
+                v1  = self.group_vecArr[1,1,:,:]
+                w1  = self.group_vecArr[1,2,:,:]
         if ds > 1:
             xp      = xp[0:-1:ds, 0:-1:ds]
             yp      = yp[0:-1:ds, 0:-1:ds]
@@ -1853,7 +1939,7 @@ class Christoffel(object):
             u2      = u2[0:-1:ds, 0:-1:ds]
             v2      = v2[0:-1:ds, 0:-1:ds]
             w2      = w2[0:-1:ds, 0:-1:ds]
-        diffs = s2 - s1
+        diffs = s1 - s2
         if ptype == 'relative' or ptype == 'rel':
             p   = (p - self.iso_P)/self.iso_P * 100.
         if stype == 'relative'or stype == 'rel':
@@ -1889,7 +1975,7 @@ class Christoffel(object):
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
         cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('Slow S wave (qS1)',)
+        tl=mayavi.mlab.title('qS1(fast) wave',)
         # tl.x_position=0.47
         tl.property.font_size=10
         # mayavi.mlab.text3d(0, 0, 1, 'label')
@@ -1908,7 +1994,7 @@ class Christoffel(object):
         else:
             cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
         cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('Fast S wave (qS2)',)
+        tl=mayavi.mlab.title('qS2(slow) wave',)
         # tl.x_position=0.47
         tl.property.font_size=10
         oaxes=mayavi.mlab.orientation_axes()
@@ -1934,7 +2020,7 @@ class Christoffel(object):
         oaxes=mayavi.mlab.orientation_axes()
         return
     
-    def plot2d(self, size=(10,10), cmap='jet_r', hsph='upper', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
+    def plot2d(self, size=(10,10), cmap='jet_r', hsph='upper', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', fastpolar=True, slowpolar=False, ds=10):
         """
         Plot 2D pole figure using cartopy 
         ============================================================================================
@@ -1948,59 +2034,68 @@ class Christoffel(object):
                         2. 'relative' or 'rel': plotting P wave in % for anisotropy percentage
         stype       -   1. 'absolute' or 'abs': plotting S wave in km/s for absolute velocity
                         2. 'relative' or 'rel': plotting S wave in % for anisotropy percentage
-        polarization- plot polarization of S wave or not
+        fastpolar   - plot polarization of qS1 (fast) wave or not
+        slowpolar   - plot polarization of qS2 (slow) wave or not
         ds          - downsampling spacing for polarization vector
         ============================================================================================
         """
         # Get data for plot
         # Position data
+        import pycpt
+        if cmap == 'cv':
+            try: cmap=pycpt.load.gmtColormap('cv.cpt')
+            except: cmap='jet_r'
+        if cmap == 'lasif':
+            from lasif import colors
+            cmap = colors.get_colormap('tomo_80_perc_linear_lightness')
         lonArr = self.phiArr.T; latArr = (90.-self.thetaArr).T
         phip   = self.phiArr.T; thetap = self.thetaArr.T
         lonp = lonArr.copy(); latp=latArr.copy()
         lon0=phi0; lat0=90.-theta0
         if datatype == 'phase':
-            s1      = (self.phvelArr[0,:,:]).T
-            s2      = (self.phvelArr[1,:,:]).T
+            s2      = (self.phvelArr[0,:,:]).T
+            s1      = (self.phvelArr[1,:,:]).T
             p       = (self.phvelArr[2,:,:]).T
-            if polarization:
-                u1  = (self.eigvecArr[0,0,:,:]).T
-                v1  = (self.eigvecArr[0,1,:,:]).T
-                w1  = (self.eigvecArr[0,2,:,:]).T
-                u2  = (self.eigvecArr[1,0,:,:]).T
-                v2  = (self.eigvecArr[1,1,:,:]).T
-                w2  = (self.eigvecArr[1,2,:,:]).T
+            if fastpolar or slowpolar:
+                u2  = (self.eigvecArr[0,0,:,:]).T
+                v2  = (self.eigvecArr[0,1,:,:]).T
+                w2  = (self.eigvecArr[0,2,:,:]).T
+                u1  = (self.eigvecArr[1,0,:,:]).T
+                v1  = (self.eigvecArr[1,1,:,:]).T
+                w1  = (self.eigvecArr[1,2,:,:]).T
         elif datatype == 'group':
-            s1      = (self.grvelArr[0,:,:]).T
-            s2      = (self.grvelArr[1,:,:]).T
+            s2      = (self.grvelArr[0,:,:]).T
+            s1      = (self.grvelArr[1,:,:]).T
             p       = (self.grvelArr[2,:,:]).T
-            if polarization:
-                u1  = (self.group_vecArr[0,0,:,:]).T
-                v1  = (self.group_vecArr[0,1,:,:]).T
-                w1  = (self.group_vecArr[0,2,:,:]).T
-                u2  = (self.group_vecArr[1,0,:,:]).T
-                v2  = (self.group_vecArr[1,1,:,:]).T
-                w2  = (self.group_vecArr[1,2,:,:]).T
+            if fastpolar or slowpolar:
+                u2  = (self.group_vecArr[0,0,:,:]).T
+                v2  = (self.group_vecArr[0,1,:,:]).T
+                w2  = (self.group_vecArr[0,2,:,:]).T
+                u1  = (self.group_vecArr[1,0,:,:]).T
+                v1  = (self.group_vecArr[1,1,:,:]).T
+                w1  = (self.group_vecArr[1,2,:,:]).T
         if ds > 1:
             lonp    = lonp[0:-1:ds, 0:-1:ds]
             latp    = latp[0:-1:ds, 0:-1:ds]
             phip    = phip[0:-1:ds, 0:-1:ds]
             thetap  = thetap[0:-1:ds, 0:-1:ds]
-            if polarization:
+            if fastpolar or slowpolar:
                 u1      = u1[0:-1:ds, 0:-1:ds]
                 v1      = v1[0:-1:ds, 0:-1:ds]
                 w1      = w1[0:-1:ds, 0:-1:ds]
                 u2      = u2[0:-1:ds, 0:-1:ds]
                 v2      = v2[0:-1:ds, 0:-1:ds]
                 w2      = w2[0:-1:ds, 0:-1:ds]
-        diffs = s2 - s1
+        diffs = s1 - s2
         if ptype == 'relative' or ptype == 'rel':
             p   = (p - self.iso_P)/self.iso_P * 100.
         if stype == 'relative'or stype == 'rel':
             s1  = (s1 - self.iso_S)/self.iso_S* 100.
             s2  = (s2 - self.iso_S)/self.iso_S* 100.
             diffs = diffs/self.iso_S* 100.
-        if polarization:
+        if fastpolar:
             rr1, uu1, vv1 =  localcartesian2spherical(u1, v1, w1, thetap, phip, r=100)
+        if slowpolar:
             rr2, uu2, vv2 =  localcartesian2spherical(u2, v2, w2, thetap, phip, r=100)
         if hsph == 'lower':
             p   = p[::-1, :]
@@ -2043,10 +2138,10 @@ class Christoffel(object):
             cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
         else:
             cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
-        if polarization:
+        if fastpolar:
             plt.quiver(lonp, latp, uu1, vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
             plt.quiver(lonp, latp, -uu1, -vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
-        plt.title('qS1(slow) wave', fontsize=20)
+        plt.title('qS1(fast) wave', fontsize=20)
         #############################
         # qS2 wave pole figure
         #############################
@@ -2061,10 +2156,10 @@ class Christoffel(object):
             cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
         else:
             cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
-        if polarization:
+        if slowpolar:
             plt.quiver(lonp, latp, uu2, vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
             plt.quiver(lonp, latp, -uu2, -vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
-        plt.title('qS2(fast) wave', fontsize=20)
+        plt.title('qS2(slow) wave', fontsize=20)
         #############################
         # S wave difference pole figure
         #############################
@@ -2079,9 +2174,10 @@ class Christoffel(object):
             cb.set_label(datatype+' velocity (km/s)', fontsize=15, rotation=90)
         else:
             cb.set_label(datatype+' velocity anisotropy(%)', fontsize=15, rotation=90)
-        if polarization:
+        if fastpolar:
             plt.quiver(lonp, latp, uu1, vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
             plt.quiver(lonp, latp, -uu1, -vv1, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(0,0,0))
+        if slowpolar:
             plt.quiver(lonp, latp, uu2, vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
             plt.quiver(lonp, latp, -uu2, -vv2, transform=ccrs.PlateCarree(), scale=50, width=0.01, headaxislength=0, headlength=0, color=(1,1,1))
         plt.title('S wave difference', fontsize=20)

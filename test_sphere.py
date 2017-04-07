@@ -9,11 +9,11 @@ eTensor.info='Hexagonal Symmetric Media (lower hemisphere)'
 
 
 kceq=pysat.Christoffel(etensor=eTensor)
-kceq.sphere(dtheta=1., dphi=1., outfname='jiayi002.asdf', group=True)
+# kceq.sphere(dtheta=1., dphi=1., outfname='jiayi002.asdf', group=True)
 # # kceq.sphere(dtheta=5., dphi=5., outfname='sphere002.asdf', group=True)
 kceq.read_asdf(infname='jiayi002.asdf')
 # kceq.plot3d(ptype='abs', stype='abs')
-kceq.plot2d(ptype='abs', stype='abs', ds=10, theta0=180., hsph='lower', polarization=False)
+kceq.plot2d(ptype='abs', stype='abs', ds=10, theta0=180., hsph='lower', cmap='cv')
 # kceq.set_direction_cartesian(pv=[1.1,2.2,3.3])
 # kceq.set_direction_cartesian(pv=[1.1,2.2,3.3])
 # kceq.get_phvel()
