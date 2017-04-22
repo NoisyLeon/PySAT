@@ -683,6 +683,9 @@ class elasticTensor(object):
         Input Parameters:
         vp,vs                   - (km/s)
         eps,gamma,delta         - Thomsen parameters, dimensionless
+                                    eps     : P wave anisotropy
+                                    gamma   : SH wave anisotropy
+                                    elliptical anisotropy: eps = delta
         rho                     - density (kg/m^2)
         resetCijkl              - reset 4th order tensor or not
         ============================================================================
@@ -1771,6 +1774,137 @@ class Christoffel(object):
             self.find_nopowerflow(step_size, eig_id, max_iter)
         return
     
+    def circle(self, theta, dphi=1., group=False):
+        """
+        Scan a unit circle to produce data for azimuthal anisotropy variation figure
+        ============================================================================================
+        Input Parameters:
+        theta   - polar angle
+        dphi    - interval of azimuth
+        group   - compute group velocities or nor
+        outfname- output file name (ASDF format)
+        --------------------------------------------------------------------------------------------
+        Output:
+        self.phvelArr       - phace velocity array (3*Nphi)
+        self.eigvecArr      - eigenvector array (polarization of three phase modes, 3*3*Nphi)
+        self.grvelArr       - group velocity array (3*Nphi)
+        self.group_vecArr   - polarization of three group modes (3*3*Nphi)
+        self.group_pvArr    - propagation vector of three group modes (3*3*Nphi)
+        self.group_thetaArr - group velocity polar angle array (3*Nphi)
+        self.group_phiArr   - group velocity azimuth array (3*Nphi)
+        self.pf_angleArr    - power flow angle array (3*Nphi)
+        ============================================================================================
+        """
+        Nphi    = int(360./dphi)
+        phis    = np.linspace(0., 360., num=Nphi)
+        # initialization
+        phvelArr = np.zeros([3, Nphi])
+        eigvecArr= np.zeros([3, 3, Nphi])
+        if group:
+            grvelArr        = np.zeros([3, Nphi])
+            group_vecArr    = np.zeros([3, 3, Nphi])
+            group_pvArr     = np.zeros([3, 3, Nphi])
+            group_thetaArr  = np.zeros([3, Nphi])
+            group_phiArr    = np.zeros([3, Nphi])
+            pf_angleArr     = np.zeros([3, Nphi])
+        print 'Solving Kelvin-Christoffel equation for a circle of propagation vector'
+        dN= int(Nphi/10)
+        i = 0; j = 0
+        for iphi in xrange(Nphi):
+            i+=1
+            if i%dN ==0:
+                j+=10
+                print 'Finished %'+str(j)
+            phi         = phis[iphi]
+            temp_kceq   = self.copy()
+            temp_kceq.set_direction_spherical(theta=theta, phi=phi)
+            temp_kceq.get_phvel()
+            phvelArr[:, iphi]       = temp_kceq.phvel
+            eigvecArr[:, :, iphi]   = temp_kceq.eig_vec
+            if not group: continue
+            temp_kceq.get_grvel()
+            grvelArr[:, iphi]       = temp_kceq.grvel
+            group_vecArr[:, :, iphi]= temp_kceq.group_vec
+            group_pvArr[:, :, iphi] = temp_kceq.group_pv
+            group_thetaArr[:, iphi] = temp_kceq.group_theta
+            group_phiArr[:, iphi]   = temp_kceq.group_phi
+            pf_angleArr[:, iphi]    = temp_kceq.powflow_angle
+        print 'End solving Kelvin-Christoffel equation for a circle of propagation vector'
+        self.phvelArr   = phvelArr
+        self.eigvecArr  = eigvecArr
+        self.phis       = phis
+        if group:
+            self.grvelArr        = grvelArr
+            self.group_vecArr    = group_vecArr
+            self.group_pvArr     = group_pvArr
+            self.group_thetaArr  = group_thetaArr
+            self.group_phiArr    = group_phiArr
+            self.pf_angleArr     = pf_angleArr
+        # 
+        # if outfname is not None:
+        #     dset    = pyasdf.ASDFDataSet(outfname)
+        #     dset.add_auxiliary_data(data=thetaArr,  data_type='PySAT', path='theta', parameters={})
+        #     dset.add_auxiliary_data(data=phiArr,  data_type='PySAT', path='phi', parameters={})
+        #     dset.add_auxiliary_data(data=phvelArr,  data_type='PySAT', path='phvel', parameters={})
+        #     dset.add_auxiliary_data(data=eigvecArr,  data_type='PySAT', path='eigvec', parameters={})
+        #     if group:
+        #         dset.add_auxiliary_data(data=grvelArr,  data_type='PySAT', path='grvel', parameters={})
+        #         dset.add_auxiliary_data(data=group_vecArr,  data_type='PySAT', path='grvec', parameters={})
+        #         dset.add_auxiliary_data(data=group_pvArr,  data_type='PySAT', path='grpv', parameters={})
+        #         dset.add_auxiliary_data(data=group_thetaArr,  data_type='PySAT', path='grtheta', parameters={})
+        #         dset.add_auxiliary_data(data=group_phiArr,  data_type='PySAT', path='grphi', parameters={})
+        #         dset.add_auxiliary_data(data=pf_angleArr,  data_type='PySAT', path='pfangle', parameters={})
+        return
+    
+    def plot_circle(self, figsize=(15,15), diff=True, rel=True, dtype='phase'):
+        if dtype is 'phase':
+            R0  = self.phvelArr[0, :]
+            R1  = self.phvelArr[1, :]
+            R2  = self.phvelArr[2, :]
+        elif dtype is 'group':
+            R0  = self.grvelArr[0, :]
+            R1  = self.grvelArr[1, :]
+            R2  = self.grvelArr[2, :]
+        else: raise NameError('Unexpected data type: ' + dtype)
+        R0mean  = R0.mean()
+        R1mean  = R1.mean()
+        R2mean  = R2.mean()
+        if diff:
+            R0  = R0 - R0.min()
+            R1  = R1 - R1.min()
+            R2  = R2 - R2.min()
+        if rel:
+            R0  = R0/R0mean*100.
+            R1  = R1/R1mean*100.
+            R2  = R2/R2mean*100.
+        phis= self.phis
+        x0  = R0 * np.cos(np.pi/180.*phis)
+        y0  = R0 * np.sin(np.pi/180.*phis)
+        x1  = R1 * np.cos(np.pi/180.*phis)
+        y1  = R1 * np.sin(np.pi/180.*phis)
+        x2  = R2 * np.cos(np.pi/180.*phis)
+        y2  = R2 * np.sin(np.pi/180.*phis)
+        # plot results
+        fig, ax = plt.subplots(figsize=figsize)
+        plt.plot(x0, y0, '-', lw=5, label='qS2 Wave')
+        plt.plot(x1, y1, '-', lw=5, label='qS1 Wave')
+        plt.plot(x2, y2, '-', lw=5, label='qP Wave')
+        plt.legend(numpoints=1, fontsize=20)
+        plt.axis('equal')
+        if rel:
+            plt.ylabel('anisotropy(%)', fontsize=45)
+            plt.xlabel('anisotropy(%)', fontsize=45)
+        else:
+            plt.ylabel('km/s', fontsize=45)
+            plt.xlabel('km/s', fontsize=45)
+        ax.tick_params(axis='y', labelsize=25)
+        ax.tick_params(axis='x', labelsize=25)
+        plt.title(dtype+' velocity surface', fontsize=45)
+        plt.show()
+        return
+        
+        
+    
     def sphere(self, dtheta=1., dphi=1., group=False, outfname=None):
         """
         Scan a unit sphere to produce data for pole figure
@@ -1878,7 +2012,7 @@ class Christoffel(object):
             print 'No group velocity related data !'
         return
     
-    def plot3d(self, size=(1000, 700), datatype='phase', ptype='absolute', stype='absolute', polarization=True, ds=10):
+    def plot3d(self, size=(1000, 700), datatype='phase', ptype='absolute', stype='absolute', fastpolar=True, slowpolar=False, ds=10):
         """
         Plot 3D pole figure using Mayavi 
         ============================================================================================
@@ -1889,7 +2023,8 @@ class Christoffel(object):
                         2. 'relative' or 'rel': plotting P wave in % for anisotropy percentage
         stype       -   1. 'absolute' or 'abs': plotting S wave in km/s for absolute velocity
                         2. 'relative' or 'rel': plotting S wave in % for anisotropy percentage
-        polarization- plot polarization of S wave or not
+        fastpolar   - plot polarization of qS1 (fast) wave or not
+        slowpolar   - plot polarization of qS2 (slow) wave or not
         ds          - downsampling spacing for polarization vector
         ============================================================================================
         """
@@ -1911,7 +2046,7 @@ class Christoffel(object):
             s2      = self.phvelArr[0,:,:]
             s1      = self.phvelArr[1,:,:]
             p       = self.phvelArr[2,:,:]
-            if polarization:
+            if fastpolar or slowpolar:
                 u2  = self.eigvecArr[0,0,:,:]
                 v2  = self.eigvecArr[0,1,:,:]
                 w2  = self.eigvecArr[0,2,:,:]
@@ -1922,7 +2057,7 @@ class Christoffel(object):
             s2      = self.grvelArr[0,:,:]
             s1      = self.grvelArr[1,:,:]
             p       = self.grvelArr[2,:,:]
-            if polarization:
+            if fastpolar or slowpolar:
                 u2  = self.group_vecArr[0,0,:,:]
                 v2  = self.group_vecArr[0,1,:,:]
                 w2  = self.group_vecArr[0,2,:,:]
@@ -1967,7 +2102,7 @@ class Christoffel(object):
         mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
         fig3d=mayavi.mlab.mesh(x, y, z, scalars=s1)
         fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        if polarization:
+        if fastpolar:
             mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
             mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
         if stype == 'absolute' or stype == 'abs':
@@ -1986,7 +2121,7 @@ class Christoffel(object):
         mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
         fig3d=mayavi.mlab.mesh(x, y, z, scalars=s2)
         fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        if polarization:
+        if slowpolar:
             mayavi.mlab.quiver3d(xp, yp, zp, u2, v2, w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
             mayavi.mlab.quiver3d(xp, yp, zp, -u2, -v2, -w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
         if stype == 'absolute' or stype == 'abs':
@@ -2004,9 +2139,10 @@ class Christoffel(object):
         mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
         fig3d=mayavi.mlab.mesh(x, y, z, scalars=diffs)
         fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        if polarization:
+        if fastpolar:
             mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
             mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
+        if slowpolar:
             mayavi.mlab.quiver3d(xp, yp, zp, u2, v2, w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
             mayavi.mlab.quiver3d(xp, yp, zp, -u2, -v2, -w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
         if stype == 'absolute' or stype == 'abs':
@@ -2101,7 +2237,7 @@ class Christoffel(object):
             p   = p[::-1, :]
             s1  = s1[::-1, :]
             s2  = s2[::-1,:]
-            if polarization:
+            if fastpolar or slowpolar:
                 uu1 = uu1[::-1, :]
                 uu2 = uu2[::-1,:]
                 vv1 = vv1[::-1, :]
