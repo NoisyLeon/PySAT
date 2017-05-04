@@ -1774,7 +1774,7 @@ class Christoffel(object):
             self.find_nopowerflow(step_size, eig_id, max_iter)
         return
     
-    def circle(self, theta, dphi=1., group=False):
+    def circle(self, theta, dphi=1., group=False, verbose=False):
         """
         Scan a unit circle to produce data for azimuthal anisotropy variation figure
         ============================================================================================
@@ -1812,7 +1812,7 @@ class Christoffel(object):
         i = 0; j = 0
         for iphi in xrange(Nphi):
             i+=1
-            if i%dN ==0:
+            if i%dN ==0 and verbose:
                 j+=10
                 print 'Finished %'+str(j)
             phi         = phis[iphi]
@@ -1856,7 +1856,7 @@ class Christoffel(object):
         #         dset.add_auxiliary_data(data=pf_angleArr,  data_type='PySAT', path='pfangle', parameters={})
         return
     
-    def plot_circle(self, figsize=(15,15), diff=True, rel=True, dtype='phase'):
+    def plot_circle(self, figsize=(15,15), diff=True, rel=True, dtype='phase', showfig=True):
         if dtype is 'phase':
             R0  = self.phvelArr[0, :]
             R1  = self.phvelArr[1, :]
@@ -1869,6 +1869,9 @@ class Christoffel(object):
         R0mean  = R0.mean()
         R1mean  = R1.mean()
         R2mean  = R2.mean()
+        R0min  = R0.min()
+        R1min  = R1.min()
+        R2min  = R2.min()
         if diff:
             R0  = R0 - R0.min()
             R1  = R1 - R1.min()
@@ -1900,7 +1903,10 @@ class Christoffel(object):
         ax.tick_params(axis='y', labelsize=25)
         ax.tick_params(axis='x', labelsize=25)
         plt.title(dtype+' velocity surface', fontsize=45)
-        plt.show()
+        print 'qP anisotropy: ', R2.max()
+        print 'qS1 anisotropy: ', R1.max()
+        print 'qS2 anisotropy: ', R0.max()
+        if showfig: plt.show()
         return
         
         

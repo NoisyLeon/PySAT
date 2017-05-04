@@ -30,18 +30,18 @@ gammaArr= gammaArr
 aziArr= aziArr
 
 dipArr = np.arange(0, 90, 1)
-plt.plot(dipArr, gammaArr, 'r-', lw=5,label='radial anisotropy')
-plt.plot(dipArr, aziArr, 'b-', lw=5,label='azimuthal anisotropy')
+plt.plot(dipArr, gammaArr/gammaArr.max(), 'r-', lw=5,label='radial anisotropy')
+plt.plot(dipArr, aziArr/aziArr.max(), 'b-', lw=5,label='azimuthal anisotropy')
 plt.ylabel('anisotropy', fontsize=30)
 plt.xlabel('dip (deg)', fontsize=30)
 
 plt.legend(loc='lower left')
-plt.figure()
-
-plt.plot(dipArr[~ np.isnan(phiArr)], phiArr[~ np.isnan(phiArr)], 'b-', lw=5)
-plt.ylim([phiArr[~ np.isnan(phiArr)].mean()-0.1, phiArr[~ np.isnan(phiArr)].mean()+0.1])
-plt.ylabel('fast axis angle(deg)', fontsize=30)
-plt.xlabel('dip (deg)', fontsize=30)
+# plt.figure()
+# 
+# plt.plot(dipArr[~ np.isnan(phiArr)], phiArr[~ np.isnan(phiArr)], 'b-', lw=5)
+# plt.ylim([phiArr[~ np.isnan(phiArr)].mean()-0.1, phiArr[~ np.isnan(phiArr)].mean()+0.1])
+# plt.ylabel('fast axis angle(deg)', fontsize=30)
+# plt.xlabel('dip (deg)', fontsize=30)
 plt.show()
 # plt.plot(dipArr, gammaArr)
 
