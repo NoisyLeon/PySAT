@@ -685,14 +685,14 @@ class elasticTensor(object):
         eps,gamma,delta         - Thomsen parameters, dimensionless
                                     eps     : P wave anisotropy
                                     gamma   : SH wave anisotropy
-                                    elliptical anisotropy: eps = delta
+                                    delta   : elliptical anisotropy: eps = delta
         rho                     - density (kg/m^2)
         resetCijkl              - reset 4th order tensor or not
         ============================================================================
         """
         #  convert to m/s
-        vp=vp*1e3
-        vs=vs*1e3
+        vp      = vp*1e3
+        vs      = vs*1e3
         C       = np.zeros([6,6])
         C[2,2]  = vp*vp  # Eq 9a in Thomsen paper.
         C[3,3]  = vs*vs  # 9b
@@ -703,11 +703,11 @@ class elasticTensor(object):
         ctm     = C[3,3]*C[3,3] - (2.0*delta*C[2,2]*term + term*term) 
         dsrmt   = (btm*btm - 4.0*ctm) 
         if dsrmt < 0: raise ValueError('S-velocity too high or delta too negative for Thomsen routine.')
-        C[0,2] = -btm/2.0 + np.sqrt(dsrmt)/2.0 # Eq 17
-        C[0,1] = C[0,0] - 2.0*C[5,5] 
-        C[1,2] = C[0,2] 
-        C[4,4] = C[3,3] 
-        C[1,1] = C[0,0] 
+        C[0,2]  = -btm/2.0 + np.sqrt(dsrmt)/2.0 # Eq 17
+        C[0,1]  = C[0,0] - 2.0*C[5,5] 
+        C[1,2]  = C[0,2] 
+        C[4,4]  = C[3,3] 
+        C[1,1]  = C[0,0] 
         # make symmetrical
         for i in xrange(6):
             for j in xrange(6):
@@ -1375,6 +1375,7 @@ class Christoffel(object):
     theta, phi  - polar angle, azimuth (scalar, unit: degree)
     eig_val     - eigenvalues of Kelvin-Christoffel equation (3*1, unit: GPa)
     eig_vec     - eigenvectors of Kelvin-Christoffel equation (polarization, 3*3)
+    Note:   eig_vec[i, :] corresponds to eig_val[i]
     ----------------------
     --- Group velocity ---
     ----------------------
