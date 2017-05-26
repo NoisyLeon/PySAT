@@ -628,12 +628,12 @@ class elasticTensor(object):
             Inferring the oriented elastic tensor from surface wave observations: preliminary application across the western United States.
             Geophysical Journal International, 201(2), pp.996-1021.
         """
-        self.rho=rho
-        A   = rho*(vph**2)/1000.
-        C   = rho*(vpv**2)/1000.
-        N   = rho*(vsh**2)/1000.
-        L   = rho*(vsv**2)/1000.
-        F   = eta*(A-2*L)
+        self.rho    = rho
+        A           = rho*(vph**2)/1000.
+        C           = rho*(vpv**2)/1000.
+        N           = rho*(vsh**2)/1000.
+        L           = rho*(vsv**2)/1000.
+        F           = eta*(A-2*L)
         self.set_love(A=A, C=C, L=L, N=N, F=F, resetCijkl=resetCijkl)
         return
     
@@ -1355,6 +1355,18 @@ class elasticTensor(object):
         phifa   = 1./2.*np.arctan(2.*C[3,4]/ (C[4,4] - C[3,3])) / np.pi *180.
         return aziA, phifa
     
+    def iso_vel(self, isotype='voigt'):
+        VRHavg          = self.VRHavg()
+        self.voigtB     = VRHavg[0]
+        self.reussB     = VRHavg[1]
+        self.voigtG     = VRHavg[2]
+        self.reussG     = VRHavg[3]
+        self.VRHB       = VRHavg[4]
+        self.VRHG       = VRHavg[5]
+        if isotype  =='voigt': iso_P, iso_S = get_vel(self.voigtB, self.voigtG, self.rho)
+        elif isotype=='reuss': iso_P, iso_S = get_vel(self.reussB, self.reussG, self.rho)
+        elif isotype=='VRH': iso_P, iso_S = get_vel(self.VRHB, self.VRHG, self.rho)
+        return iso_P, iso_S
     
 class Christoffel(object):
     """
@@ -1783,7 +1795,6 @@ class Christoffel(object):
         theta   - polar angle
         dphi    - interval of azimuth
         group   - compute group velocities or nor
-        outfname- output file name (ASDF format)
         --------------------------------------------------------------------------------------------
         Output:
         self.phvelArr       - phace velocity array (3*Nphi)
@@ -1841,23 +1852,9 @@ class Christoffel(object):
             self.group_thetaArr  = group_thetaArr
             self.group_phiArr    = group_phiArr
             self.pf_angleArr     = pf_angleArr
-        # 
-        # if outfname is not None:
-        #     dset    = pyasdf.ASDFDataSet(outfname)
-        #     dset.add_auxiliary_data(data=thetaArr,  data_type='PySAT', path='theta', parameters={})
-        #     dset.add_auxiliary_data(data=phiArr,  data_type='PySAT', path='phi', parameters={})
-        #     dset.add_auxiliary_data(data=phvelArr,  data_type='PySAT', path='phvel', parameters={})
-        #     dset.add_auxiliary_data(data=eigvecArr,  data_type='PySAT', path='eigvec', parameters={})
-        #     if group:
-        #         dset.add_auxiliary_data(data=grvelArr,  data_type='PySAT', path='grvel', parameters={})
-        #         dset.add_auxiliary_data(data=group_vecArr,  data_type='PySAT', path='grvec', parameters={})
-        #         dset.add_auxiliary_data(data=group_pvArr,  data_type='PySAT', path='grpv', parameters={})
-        #         dset.add_auxiliary_data(data=group_thetaArr,  data_type='PySAT', path='grtheta', parameters={})
-        #         dset.add_auxiliary_data(data=group_phiArr,  data_type='PySAT', path='grphi', parameters={})
-        #         dset.add_auxiliary_data(data=pf_angleArr,  data_type='PySAT', path='pfangle', parameters={})
         return
     
-    def plot_circle(self, figsize=(15,15), diff=True, rel=True, dtype='phase', showfig=True):
+    def plot_circle(self, figsize=(15,15), polar=True, diff=True, rel=True, dtype='phase', showfig=True):
         if dtype is 'phase':
             R0  = self.phvelArr[0, :]
             R1  = self.phvelArr[1, :]
@@ -1877,10 +1874,14 @@ class Christoffel(object):
             R0  = R0 - R0.min()
             R1  = R1 - R1.min()
             R2  = R2 - R2.min()
+        # if rel:
+        #     R0  = R0/R0mean*100.
+        #     R1  = R1/R1mean*100.
+        #     R2  = R2/R2mean*100.
         if rel:
-            R0  = R0/R0mean*100.
-            R1  = R1/R1mean*100.
-            R2  = R2/R2mean*100.
+            R0  = R0/R0min*100.
+            R1  = R1/R1min*100.
+            R2  = R2/R2min*100.
         phis= self.phis
         x0  = R0 * np.cos(np.pi/180.*phis)
         y0  = R0 * np.sin(np.pi/180.*phis)
@@ -1890,27 +1891,38 @@ class Christoffel(object):
         y2  = R2 * np.sin(np.pi/180.*phis)
         # plot results
         fig, ax = plt.subplots(figsize=figsize)
-        plt.plot(x0, y0, '-', lw=5, label='qS2 Wave')
-        plt.plot(x1, y1, '-', lw=5, label='qS1 Wave')
-        plt.plot(x2, y2, '-', lw=5, label='qP Wave')
-        plt.legend(numpoints=1, fontsize=20)
-        plt.axis('equal')
-        if rel:
-            plt.ylabel('anisotropy(%)', fontsize=45)
-            plt.xlabel('anisotropy(%)', fontsize=45)
+        if polar:
+            ax = plt.subplot(111, projection='polar')
+            plt.plot(phis/180*np.pi, R0, '-', lw=5, label='qS2 Wave')
+            plt.plot(phis/180*np.pi, R1, '-', lw=5, label='qS1 Wave')
+            plt.plot(phis/180*np.pi, R2, '-', lw=5, label='qP Wave')
         else:
-            plt.ylabel('km/s', fontsize=45)
-            plt.xlabel('km/s', fontsize=45)
-        ax.tick_params(axis='y', labelsize=25)
-        ax.tick_params(axis='x', labelsize=25)
+            plt.plot(x0, y0, '-', lw=5, label='qS2 Wave')
+            plt.plot(x1, y1, '-', lw=5, label='qS1 Wave')
+            plt.plot(x2, y2, '-', lw=5, label='qP Wave')
+            if rel:
+                plt.ylabel('anisotropy(%)', fontsize=45)
+                plt.xlabel('anisotropy(%)', fontsize=45)
+            else:
+                plt.ylabel('km/s', fontsize=45)
+                plt.xlabel('km/s', fontsize=45)
+            ax.tick_params(axis='y', labelsize=25)
+            ax.tick_params(axis='x', labelsize=25)
+            plt.axis('equal')
+        plt.legend(numpoints=1, fontsize=20)
         plt.title(dtype+' velocity surface', fontsize=45)
-        print 'qP anisotropy: ', R2.max()
-        print 'qS1 anisotropy: ', R1.max()
-        print 'qS2 anisotropy: ', R0.max()
+        if rel: label = '%'
+        else: label='km/s'
+        print '=============================================================='
+        print 'qP anisotropy: ', R2.max(),label
+        print 'min vp =', R2min, 'km/s mean vp =',R2mean, 'km/s'
+        print 'qS1 anisotropy: ', R1.max(),label
+        print 'min vs1 =', R1min, 'km/s mean vs1 =',R1mean, 'km/s'
+        print 'qS2 anisotropy: ', R0.max(),label
+        print 'min vs2 =', R0min, 'km/s mean vs2 =',R0mean, 'km/s'
+        print '=============================================================='
         if showfig: plt.show()
         return
-        
-        
     
     def sphere(self, dtheta=1., dphi=1., group=False, outfname=None):
         """
