@@ -42,8 +42,8 @@ try:
     from opt_einsum import contract
     use_opt_einsum=True
 except: use_opt_einsum=False
-import mayavi.mlab
 import cartopy.crs as ccrs
+import mayavi.mlab
 from matplotlib import cm
 import matplotlib.pyplot as plt
 from numba import jit, float32, int32
@@ -2083,16 +2083,26 @@ class Christoffel(object):
                 u1  = self.group_vecArr[1,0,:,:]
                 v1  = self.group_vecArr[1,1,:,:]
                 w1  = self.group_vecArr[1,2,:,:]
+        # if ds > 1:
+        #     xp      = xp[0:-1:ds, 0:-1:ds]
+        #     yp      = yp[0:-1:ds, 0:-1:ds]
+        #     zp      = zp[0:-1:ds, 0:-1:ds]
+        #     u1      = u1[0:-1:ds, 0:-1:ds]
+        #     v1      = v1[0:-1:ds, 0:-1:ds]
+        #     w1      = w1[0:-1:ds, 0:-1:ds]
+        #     u2      = u2[0:-1:ds, 0:-1:ds]
+        #     v2      = v2[0:-1:ds, 0:-1:ds]
+        #     w2      = w2[0:-1:ds, 0:-1:ds]
         if ds > 1:
-            xp      = xp[0:-1:ds, 0:-1:ds]
-            yp      = yp[0:-1:ds, 0:-1:ds]
-            zp      = zp[0:-1:ds, 0:-1:ds]
-            u1      = u1[0:-1:ds, 0:-1:ds]
-            v1      = v1[0:-1:ds, 0:-1:ds]
-            w1      = w1[0:-1:ds, 0:-1:ds]
-            u2      = u2[0:-1:ds, 0:-1:ds]
-            v2      = v2[0:-1:ds, 0:-1:ds]
-            w2      = w2[0:-1:ds, 0:-1:ds]
+            xp      = xp[0:361:ds, 0:181:ds]
+            yp      = yp[0:361:ds, 0:181:ds]
+            zp      = zp[0:361:ds, 0:181:ds]
+            u1      = u1[0:361:ds, 0:181:ds]
+            v1      = v1[0:361:ds, 0:181:ds]
+            w1      = w1[0:361:ds, 0:181:ds]
+            u2      = u2[0:361:ds, 0:181:ds]
+            v2      = v2[0:361:ds, 0:181:ds]
+            w2      = w2[0:361:ds, 0:181:ds]
         diffs = s1 - s2
         if ptype == 'relative' or ptype == 'rel':
             p   = (p - self.iso_P)/self.iso_P * 100.
@@ -2103,55 +2113,55 @@ class Christoffel(object):
         #############################
         # qp wave pole figure
         #############################
-        mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
-        fig3d=mayavi.mlab.mesh(x, y, z, scalars=p)
-        fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        if ptype == 'absolute' or ptype == 'abs':
-            cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
-        else:
-            cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('qP wave')
-        # tl.x_position=0.47
-        tl.property.font_size=10
-        oaxes=mayavi.mlab.orientation_axes()
-        #############################
-        # qs1 wave (slow) pole figure
-        #############################
-        mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
-        fig3d=mayavi.mlab.mesh(x, y, z, scalars=s1)
-        fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        if fastpolar:
-            mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
-            mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
-        if stype == 'absolute' or stype == 'abs':
-            cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
-        else:
-            cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('qS1(fast) wave',)
-        # tl.x_position=0.47
-        tl.property.font_size=10
-        # mayavi.mlab.text3d(0, 0, 1, 'label')
-        oaxes=mayavi.mlab.orientation_axes()
-        #############################
-        # qs2 wave (fast) pole figure
-        #############################
-        mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
-        fig3d=mayavi.mlab.mesh(x, y, z, scalars=s2)
-        fig3d.module_manager.scalar_lut_manager.reverse_lut = True
-        if slowpolar:
-            mayavi.mlab.quiver3d(xp, yp, zp, u2, v2, w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
-            mayavi.mlab.quiver3d(xp, yp, zp, -u2, -v2, -w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
-        if stype == 'absolute' or stype == 'abs':
-            cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
-        else:
-            cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
-        cb.scalar_bar_representation.proportional_resize=True
-        tl=mayavi.mlab.title('qS2(slow) wave',)
-        # tl.x_position=0.47
-        tl.property.font_size=10
-        oaxes=mayavi.mlab.orientation_axes()
+        # mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
+        # fig3d=mayavi.mlab.mesh(x, y, z, scalars=p)
+        # fig3d.module_manager.scalar_lut_manager.reverse_lut = True
+        # if ptype == 'absolute' or ptype == 'abs':
+        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
+        # else:
+        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
+        # cb.scalar_bar_representation.proportional_resize=True
+        # tl=mayavi.mlab.title('qP wave')
+        # # tl.x_position=0.47
+        # tl.property.font_size=10
+        # oaxes=mayavi.mlab.orientation_axes()
+        # #############################
+        # # qs1 wave (slow) pole figure
+        # #############################
+        # mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
+        # fig3d=mayavi.mlab.mesh(x, y, z, scalars=s1)
+        # fig3d.module_manager.scalar_lut_manager.reverse_lut = True
+        # if fastpolar:
+        #     mayavi.mlab.quiver3d(xp, yp, zp, u1, v1, w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
+        #     mayavi.mlab.quiver3d(xp, yp, zp, -u1, -v1, -w1, line_width=0.01, color=(0, 0, 0), mode='2ddash', scale_factor=0.05)
+        # if stype == 'absolute' or stype == 'abs':
+        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
+        # else:
+        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
+        # cb.scalar_bar_representation.proportional_resize=True
+        # tl=mayavi.mlab.title('qS1(fast) wave',)
+        # # tl.x_position=0.47
+        # tl.property.font_size=10
+        # # mayavi.mlab.text3d(0, 0, 1, 'label')
+        # oaxes=mayavi.mlab.orientation_axes()
+        # #############################
+        # # qs2 wave (fast) pole figure
+        # #############################
+        # mayavi.mlab.figure(figure=None, bgcolor=None, fgcolor=None, engine=None, size=size)
+        # fig3d=mayavi.mlab.mesh(x, y, z, scalars=s2)
+        # fig3d.module_manager.scalar_lut_manager.reverse_lut = True
+        # if slowpolar:
+        #     mayavi.mlab.quiver3d(xp, yp, zp, u2, v2, w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
+        #     mayavi.mlab.quiver3d(xp, yp, zp, -u2, -v2, -w2, line_width=0.01, color=(1, 1, 1), mode='2ddash', scale_factor=0.05)
+        # if stype == 'absolute' or stype == 'abs':
+        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity (km/s)', orientation='horizontal')
+        # else:
+        #     cb=mayavi.mlab.colorbar(title=datatype+' velocity anisotropy(%)', orientation='horizontal')
+        # cb.scalar_bar_representation.proportional_resize=True
+        # tl=mayavi.mlab.title('qS2(slow) wave',)
+        # # tl.x_position=0.47
+        # tl.property.font_size=10
+        # oaxes=mayavi.mlab.orientation_axes()
         #############################
         # s wave difference wave pole figure
         #############################
@@ -2173,7 +2183,7 @@ class Christoffel(object):
         # tl.x_position=0.47
         tl.property.font_size=10
         oaxes=mayavi.mlab.orientation_axes()
-        return
+        return 
     
     def plot2d(self, size=(10,10), cmap='jet_r', hsph='upper', contour=False, theta0=180., phi0=0., datatype='phase', ptype='absolute', stype='absolute', fastpolar=True, slowpolar=False, ds=10):
         """
